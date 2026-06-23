@@ -8,11 +8,9 @@ from YouTube Music.
 
 > GlassPlay requires **macOS 26 (Tahoe)** and runs on **Apple Silicon (arm64)**.
 
-<!-- Drop screenshots here when you have them:
 <p align="center">
   <img src="docs/screenshot-1.png" width="720" alt="GlassPlay Now Playing">
 </p>
--->
 
 ## Features
 
@@ -85,6 +83,21 @@ open GlassPlay.app
 `build.sh` compiles `src/*.swift` with optimizations, stages the binary and
 resources into `GlassPlay.app/Contents/`, and ad-hoc signs the bundle.
 
+Prefer a prebuilt copy? Grab `GlassPlay.app.zip` from the
+[latest release](../../releases/latest) — every release is built fresh by CI
+on an Apple-Silicon macOS 26 runner.
+
+## Screenshots
+
+The image at the top of this README lives at `docs/screenshot-1.png`. To refresh
+or add more, use the included helper — it captures the frontmost window and
+drops it into `docs/`:
+
+```sh
+./tools/capture-screenshots.sh --open   # launch GlassPlay, then capture a window
+./tools/capture-screenshots.sh --screen # capture the whole screen instead
+```
+
 ## Supported audio formats
 
 MP3, M4A, M4B, M4R, AAC, ADTS, FLAC, ALAC, WAV, AIFF, AIFC, CAF, MP2, AU, SND,
@@ -119,6 +132,19 @@ GlassPlay stores your library index as JSON, artwork files, and a Python venv
 under `~/Library/Application Support/GlassPlay/`; settings live in
 `UserDefaults`. `NSAppTransportSecurity` allows arbitrary loads because YouTube
 streams are served over dynamically resolved hosts; no telemetry is collected.
+
+## Continuous integration & releases
+
+- **[Build workflow](.github/workflows/build.yml)** — compiles the app with
+  `./build.sh` on every push and PR (on an Apple-Silicon `macos-26` runner) and
+  uploads the bundle as a CI artifact.
+- **[Release workflow](.github/workflows/release.yml)** — builds and publishes a
+  GitHub Release with `GlassPlay.app.zip` whenever you push a `v*` tag:
+
+  ```sh
+  git tag v1.0
+  git push origin v1.0
+  ```
 
 ## License
 
