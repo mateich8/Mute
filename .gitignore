@@ -1,0 +1,29 @@
+# Build output — GlassPlay is a single-binary app rebuilt by ./build.sh.
+/GlassPlay
+/GlassPlay.app/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Swift / Xcode
+DerivedData/
+.build/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+Package.resolved
+.swiftpm/
+
+# Editors
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

@@ -1,0 +1,12 @@
+# Binary assets — don't let git attempt textual diffs or line-ending normalization.
+*.icns binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.icns binary
+*.plist binary
+
+# Source files have LF endings and should be diffable.
+*.swift text eol=lf
+*.sh   text eol=lf
+*.md   text eol=lf
