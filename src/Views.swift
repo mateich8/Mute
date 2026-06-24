@@ -3,11 +3,12 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum Tab: String, CaseIterable, Identifiable {
-    case nowPlaying, songs, albums, artists, playlists, youtube
+    case forYou, nowPlaying, songs, albums, artists, playlists, youtube
     var id: String { rawValue }
 
     var icon: String {
         switch self {
+        case .forYou: return "sparkles"
         case .nowPlaying: return "waveform"
         case .songs: return "music.note"
         case .albums: return "square.grid.2x2"
@@ -19,6 +20,7 @@ enum Tab: String, CaseIterable, Identifiable {
 
     var help: String {
         switch self {
+        case .forYou: return "For You"
         case .nowPlaying: return "Now Playing"
         case .songs: return "Songs"
         case .albums: return "Albums"
@@ -166,7 +168,7 @@ struct Sidebar: View {
     @ObservedObject private var youtube = YouTubeService.shared
 
     private var librarySections: [Tab] {
-        [.nowPlaying, .songs, .albums, .artists, .playlists]
+        [.forYou, .nowPlaying, .songs, .albums, .artists, .playlists]
     }
 
     var body: some View {
@@ -284,6 +286,7 @@ struct MainArea: View {
     private var sectionTitle: String {
         if !ui.debouncedSearch.isEmpty { return "Search" }
         switch ui.tab {
+        case .forYou: return "For You"
         case .nowPlaying: return "Now Playing"
         case .songs: return "Songs"
         case .albums: return "Albums"
@@ -333,6 +336,7 @@ struct MainArea: View {
 
     @ViewBuilder private var content: some View {
         switch ui.tab {
+        case .forYou: ForYouView()
         case .nowPlaying: NowPlayingView()
         case .songs: AllSongsView()
         case .albums: AlbumsView()
@@ -411,6 +415,9 @@ struct AllSongsView: View {
                         } menu: {
                             Button("Play Next") { player.playNext([track]) }
                             Button("Add to Queue") { player.addToQueue([track]) }
+                            Button(track.isFavorite ? "Remove from Liked Music" : "Add to Liked Music") {
+                                library.toggleFavorite(track.id)
+                            }
                             Button("Get Info…") { UIState.shared.infoTrack = track }
                             AddToPlaylistMenu(trackIDs: [track.id])
                             Divider()
@@ -767,6 +774,201 @@ struct ArtistBio: View {
     }
 }
 
+// MARK: - For You (recommendations + listening stats)
+
+struct ForYouView: View {
+    @ObservedObject private var library = Library.shared
+    @ObservedObject private var player = Player.shared
+    @ObservedObject private var youtube = YouTubeService.shared
+
+    private var recents: [PlayEvent] { library.recentlyPlayed }
+    private var mostPlayed: [Track] { Array(library.mostPlayed.prefix(10)) }
+    private var topArtists: [(name: String, plays: Int)] { Array(library.topArtists.prefix(8)) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                recommendationsSection
+                if !recents.isEmpty { recentlyPlayedSection }
+                if !mostPlayed.isEmpty { mostPlayedSection }
+                if !topArtists.isEmpty { topArtistsSection }
+                if recents.isEmpty && mostPlayed.isEmpty && youtube.recommendations.isEmpty {
+                    emptyState
+                }
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 96)
+        }
+        .task(id: youtube.ready) { youtube.loadRecommendations() }
+        .task(id: player.current?.id) { youtube.loadRecommendations() }
+    }
+
+    private func header(_ title: String) -> some View {
+        Text(title).font(.title3.weight(.bold)).padding(.horizontal, 28)
+    }
+
+    // MARK: Recommendations
+
+    @ViewBuilder private var recommendationsSection: some View {
+        if youtube.recommendationsLoading && youtube.recommendations.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                header("Recommended for you")
+                HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }.padding(.vertical, 20)
+            }
+        } else if !youtube.recommendations.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Recommended for you").font(.title3.weight(.bold))
+                    Spacer()
+                    Button { youtube.loadRecommendations(force: true) } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
+                            .frame(width: 26, height: 26).contentShape(Circle())
+                    }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Refresh")
+                }
+                .padding(.horizontal, 28)
+                LazyVStack(spacing: 3) {
+                    ForEach(youtube.recommendations.prefix(12)) { song in
+                        YTResultRow(result: song,
+                                    onPlay: { youtube.play(song) },
+                                    onDownload: { youtube.download(song) },
+                                    onAdd: { youtube.addToLibrary(song) })
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    // MARK: Recently played
+
+    private var recentlyPlayedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header("Recently played")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(recents) { e in
+                        Button { playEvent(e) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ArtworkSquare(image: library.artwork(for: libraryTrack(e)), corner: 10,
+                                              remote: eventRemote(e), remoteFallback: eventFallback(e))
+                                    .frame(width: 118, height: 118)
+                                Text(e.title).font(.caption.weight(.medium)).lineLimit(1)
+                                Text(e.artist.isEmpty ? "Unknown Artist" : e.artist)
+                                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .frame(width: 118)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 28)
+            }
+        }
+    }
+
+    // MARK: Most played
+
+    private var mostPlayedSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header("Most played")
+            LazyVStack(spacing: 2) {
+                ForEach(Array(mostPlayed.enumerated()), id: \.element.id) { i, track in
+                    Button { player.play(queue: mostPlayed, at: i) } label: {
+                        HStack(spacing: 12) {
+                            Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                                .frame(width: 22, alignment: .center)
+                            ArtworkSquare(image: library.artwork(for: track), corner: 6,
+                                          remote: track.remoteArtworkURL, remoteFallback: track.remoteArtworkFallbackURL)
+                                .frame(width: 38, height: 38)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(track.title).font(.callout).lineLimit(1)
+                                Text(track.artist.isEmpty ? "Unknown Artist" : track.artist)
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            Text("\(track.playCount ?? 0) play\((track.playCount ?? 0) == 1 ? "" : "s")")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    // MARK: Top artists
+
+    private var topArtistsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header("Top artists")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 18) {
+                    ForEach(topArtists, id: \.name) { artist in
+                        Button { UIState.shared.searchText = artist.name } label: {
+                            VStack(spacing: 6) {
+                                ArtistAvatar(localArt: artistArt(artist.name),
+                                             remote: youtube.artistImage(for: artist.name))
+                                    .frame(width: 76, height: 76)
+                                    .task(id: youtube.ready) { youtube.loadArtistImage(name: artist.name) }
+                                Text(artist.name).font(.caption.weight(.medium)).lineLimit(1)
+                                Text("\(artist.plays) play\(artist.plays == 1 ? "" : "s")")
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            .frame(width: 92)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 28)
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        HStack {
+            Spacer()
+            VStack(spacing: 10) {
+                Image(systemName: "sparkles").font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
+                Text("Nothing here yet").font(.headline)
+                Text("Play some music and recommendations, history and stats will appear.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            .padding(.vertical, 60).padding(.horizontal, 48)
+            .appGlass(in: .rect(cornerRadius: 26))
+            Spacer()
+        }
+        .padding(.top, 40)
+    }
+
+    // MARK: Helpers
+
+    private func libraryTrack(_ e: PlayEvent) -> Track? { library.tracks.first { $0.path == e.path } }
+    private func eventRemote(_ e: PlayEvent) -> URL? {
+        if let t = libraryTrack(e) { return t.remoteArtworkURL }
+        if let s = e.artworkURL, let u = URL(string: s) { return u }
+        if let v = e.videoID { return URL(string: "https://i.ytimg.com/vi/\(v)/mqdefault.jpg") }
+        return nil
+    }
+    private func eventFallback(_ e: PlayEvent) -> URL? {
+        e.videoID.map { URL(string: "https://i.ytimg.com/vi/\($0)/hqdefault.jpg")! }
+    }
+    private func artistArt(_ name: String) -> NSImage? {
+        library.artwork(for: library.tracks.first { $0.artist == name && $0.artworkFile != nil })
+    }
+    private func playEvent(_ e: PlayEvent) {
+        if let t = libraryTrack(e) {
+            player.play(queue: [t], at: 0)
+        } else if let vid = e.videoID {
+            youtube.play(YTResult(id: vid, title: e.title, artist: e.artist, duration: 0,
+                                  cover: e.artworkURL.flatMap { URL(string: $0) }))
+        }
+    }
+}
+
 // MARK: - Now Playing
 
 struct NowPlayingView: View {
@@ -856,6 +1058,16 @@ struct NowPlayingView: View {
                                     .background(.white.opacity(0.15), in: .capsule)
                                     .help("Device sample rate matched to the file — untouched signal path")
                             }
+                            let liked = library.isFavorite(path: track.path)
+                            Button { library.toggleLike(track) } label: {
+                                Image(systemName: liked ? "heart.fill" : "heart")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(liked ? .pink : .secondary)
+                                    .contentShape(Rectangle())
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                            .buttonStyle(.plain)
+                            .help(liked ? "Remove from Liked Music" : "Add to Liked Music")
                         }
                         Text(track.artist.isEmpty ? "Unknown Artist" : track.artist)
                             .font(.callout)

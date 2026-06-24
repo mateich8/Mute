@@ -287,7 +287,7 @@ final class Player: NSObject, ObservableObject {
             // never goes stale) right before playback.
             if track.path.hasPrefix("ytmusic://") {
                 currentIndex = i
-                Library.shared.registerPlay(track.id)
+                Library.shared.recordPlay(track)
                 NowPlayingBridge.shared.update()
                 resolveAndStream(videoID: String(track.path.dropFirst(10)), forIndex: i)
                 return
@@ -296,13 +296,13 @@ final class Player: NSObject, ObservableObject {
             if track.path.hasPrefix("http"), let url = URL(string: track.path) {
                 currentIndex = i
                 startRemoteStream(url)
-                Library.shared.registerPlay(track.id)
+                Library.shared.recordPlay(track)
                 NowPlayingBridge.shared.update()
                 return
             }
             if startPlayback(track.url) {
                 currentIndex = i
-                Library.shared.registerPlay(track.id)
+                Library.shared.recordPlay(track)
                 refreshTechnical()
                 NowPlayingBridge.shared.update()
                 return
@@ -804,7 +804,7 @@ final class Player: NSObject, ObservableObject {
         isPlaying = true
         elapsed = position
         refreshLoudness()
-        Library.shared.registerPlay(current?.id)
+        Library.shared.recordPlay(current)
         NowPlayingBridge.shared.update()
     }
 

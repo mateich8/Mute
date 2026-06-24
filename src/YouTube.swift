@@ -393,6 +393,36 @@ final class YouTubeService: ObservableObject {
         return arr.map { YTResult(id: $0.id, title: $0.title, artist: $0.artist, duration: $0.duration ?? 0) }
     }
 
+    // MARK: Recommendations (For You)
+
+    @Published private(set) var recommendations: [YTResult] = []
+    @Published private(set) var recommendationsLoading = false
+    private var recsSeed: String?
+
+    /// Builds "similar songs" recommendations, seeded from what's currently
+    /// playing, else the most-played track, else the top artist — excluding
+    /// tracks already in the library.
+    func loadRecommendations(force: Bool = false) {
+        guard ready, online, !recommendationsLoading else { return }
+        let currentVid = Player.shared.current?.youtubeVideoID
+        let topVid = Library.shared.mostPlayed.first(where: { $0.youtubeVideoID != nil })?.youtubeVideoID
+        let topArtist = Library.shared.topArtists.first?.name
+        Task {
+            var seed = currentVid ?? topVid
+            if seed == nil, let topArtist, !topArtist.isEmpty {
+                seed = await seedVideoID(artist: topArtist, title: "")
+            }
+            guard let seed else { recommendations = []; return }
+            if !force, seed == recsSeed, !recommendations.isEmpty { return }
+            recsSeed = seed
+            recommendationsLoading = true
+            let results = await Task.detached { Self.fetchRadio(seed) }.value
+            let libIDs = Set(Library.shared.tracks.compactMap { $0.youtubeVideoID })
+            recommendations = results.filter { $0.id != seed && !libIDs.contains($0.id) }
+            recommendationsLoading = false
+        }
+    }
+
     // MARK: Song trivia (Genius)
 
     @Published private(set) var trivia: SongTrivia?

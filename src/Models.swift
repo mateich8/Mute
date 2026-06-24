@@ -71,6 +71,18 @@ struct Playlist: Identifiable, Codable {
     var trackIDs: [UUID]
 }
 
+/// One playback event, logged for Listening History & Stats (covers everything
+/// played, including streams that aren't in the library).
+struct PlayEvent: Codable, Identifiable {
+    var id = UUID()
+    var title: String
+    var artist: String
+    var path: String          // "ytmusic://<id>" or a file path
+    var artworkURL: String?
+    var date: Date
+    var videoID: String? { path.hasPrefix("ytmusic://") ? String(path.dropFirst(10)) : nil }
+}
+
 struct Album: Identifiable {
     var id: String
     var name: String
@@ -91,6 +103,7 @@ final class Library: ObservableObject {
 
     @Published private(set) var tracks: [Track] = []
     @Published private(set) var playlists: [Playlist] = []
+    @Published private(set) var history: [PlayEvent] = []   // oldest → newest
     @Published private(set) var importing = false
 
     private let dir: URL
@@ -100,6 +113,7 @@ final class Library: ObservableObject {
     private struct Snapshot: Codable {
         var tracks: [Track]
         var playlists: [Playlist]
+        var history: [PlayEvent]?
     }
 
     private var file: URL { dir.appendingPathComponent("library.json") }
@@ -113,6 +127,7 @@ final class Library: ObservableObject {
            let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
             tracks = snap.tracks
             playlists = snap.playlists
+            history = snap.history ?? []
         }
         // Migrate entries imported before album keys existed.
         var migrated = false
@@ -149,7 +164,7 @@ final class Library: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(Snapshot(tracks: tracks, playlists: playlists)) {
+        if let data = try? JSONEncoder().encode(Snapshot(tracks: tracks, playlists: playlists, history: history)) {
             try? data.write(to: file, options: .atomic)
         }
     }
@@ -306,10 +321,21 @@ final class Library: ObservableObject {
 
     private var saveDebounce: Task<Void, Never>?
 
-    func registerPlay(_ id: UUID?) {
-        guard let id, let i = tracks.firstIndex(where: { $0.id == id }) else { return }
-        tracks[i].playCount = (tracks[i].playCount ?? 0) + 1
-        tracks[i].lastPlayed = Date()
+    /// Logs a play for history/stats and bumps the play count for library tracks
+    /// (covers streamed tracks that aren't in the library too — they still get
+    /// history). Called on every track start.
+    func recordPlay(_ track: Track?) {
+        guard let track else { return }
+        // Don't log an immediate repeat of the same track (e.g. replay-on-seek).
+        if history.last?.path != track.path || Date().timeIntervalSince(history.last?.date ?? .distantPast) > 1 {
+            history.append(PlayEvent(title: track.title, artist: track.artist, path: track.path,
+                                     artworkURL: track.artworkURL, date: Date()))
+            if history.count > 600 { history.removeFirst(history.count - 600) }
+        }
+        if let i = tracks.firstIndex(where: { $0.id == track.id }) {
+            tracks[i].playCount = (tracks[i].playCount ?? 0) + 1
+            tracks[i].lastPlayed = Date()
+        }
         // Coalesce disk writes — this fires on every track start.
         saveDebounce?.cancel()
         saveDebounce = Task { [weak self] in
@@ -318,6 +344,8 @@ final class Library: ObservableObject {
             self?.save()
         }
     }
+
+    func clearHistory() { history = []; save() }
 
     private func loadTrack(_ url: URL) async -> Track? {
         let asset = AVURLAsset(url: url)
@@ -630,7 +658,7 @@ final class Library: ObservableObject {
         return playlist.trackIDs.compactMap { byID[$0] }
     }
 
-    // MARK: Favorites
+    // MARK: Favorites (Liked Music)
 
     var favorites: [Track] { tracks.filter(\.isFavorite) }
 
@@ -639,6 +667,62 @@ final class Library: ObservableObject {
         tracks[i].favorite = tracks[i].isFavorite ? nil : true
         save()
     }
+
+    func isFavorite(path: String) -> Bool {
+        tracks.contains { $0.path == path && $0.isFavorite }
+    }
+
+    /// Like/unlike any track. If it isn't in the library yet (a transient
+    /// stream), add it first so "Liked Music" can hold it.
+    func toggleLike(_ track: Track) {
+        if let i = tracks.firstIndex(where: { $0.path == track.path }) {
+            tracks[i].favorite = tracks[i].isFavorite ? nil : true
+            save()
+        } else {
+            var t = track
+            t.favorite = true
+            t.addedAt = Date()
+            tracks.append(Self.normalized(t))
+            save()
+        }
+    }
+
+    // MARK: Listening stats
+
+    /// Library tracks with at least one play, most-played first.
+    var mostPlayed: [Track] {
+        tracks.filter { ($0.playCount ?? 0) > 0 }
+            .sorted { ($0.playCount ?? 0) > ($1.playCount ?? 0) }
+    }
+
+    /// Recently played, newest first, de-duplicated by track.
+    var recentlyPlayed: [PlayEvent] {
+        var seen = Set<String>(); var out: [PlayEvent] = []
+        for e in history.reversed() where seen.insert(e.path).inserted {
+            out.append(e)
+            if out.count >= 40 { break }
+        }
+        return out
+    }
+
+    /// Top artists by total play count (library) blended with history counts.
+    var topArtists: [(name: String, plays: Int)] {
+        var counts: [String: Int] = [:]
+        for t in tracks where !t.artist.isEmpty {
+            counts[t.artist, default: 0] += (t.playCount ?? 0)
+        }
+        for e in history where !e.artist.isEmpty {
+            // history may include streamed plays not in the library
+            if tracks.first(where: { $0.path == e.path }) == nil {
+                counts[e.artist, default: 0] += 1
+            }
+        }
+        return counts.filter { $0.value > 0 }
+            .map { (name: $0.key, plays: $0.value) }
+            .sorted { $0.plays > $1.plays }
+    }
+
+    var totalPlays: Int { history.count }
 
     // MARK: Loudness
 
