@@ -1,15 +1,15 @@
-# GlassPlay
+# Mute
 
 A native macOS music player built in Swift and SwiftUI, designed around the
-macOS 26 "Liquid Glass" material. GlassPlay plays a local music library with
+macOS 26 "Liquid Glass" material. Mute plays a local music library with
 gapless and crossfaded playback, a 10-band EQ, EBU R128 loudness
 normalization, and bit-perfect output — and it can also stream and download
 from YouTube Music.
 
-> GlassPlay requires **macOS 26 (Tahoe)** and runs on **Apple Silicon (arm64)**.
+> Mute requires **macOS 26 (Tahoe)** and runs on **Apple Silicon (arm64)**.
 
 <p align="center">
-  <img src="docs/screenshot-1.png" width="720" alt="GlassPlay Now Playing">
+  <img src="docs/screenshot-1.png" width="720" alt="Mute Now Playing">
 </p>
 
 ## Features
@@ -42,7 +42,7 @@ from YouTube Music.
 - Control Center / media-key Now Playing controls
 - Floating always-on-top mini player
 - Theme-aware Dock icon (dark/light)
-- `glassplay://` URL scheme (`play`, `pause`, `next`, `previous`,
+- `mute://` URL scheme (`play`, `pause`, `next`, `previous`,
   `playlist?name=…`, `album?name=…`)
 - Folder viewing for Documents, Downloads, Desktop, network & removable volumes
 
@@ -77,13 +77,13 @@ a single `swiftc` invocation and assembled into an `.app` bundle by
 
 ```sh
 ./build.sh
-open GlassPlay.app
+open Mute.app
 ```
 
 `build.sh` compiles `src/*.swift` with optimizations, stages the binary and
-resources into `GlassPlay.app/Contents/`, and ad-hoc signs the bundle.
+resources into `Mute.app/Contents/`, and ad-hoc signs the bundle.
 
-Prefer a prebuilt copy? Grab `GlassPlay.app.zip` from the
+Prefer a prebuilt copy? Grab `Mute.app.zip` from the
 [latest release](../../releases/latest) — every release is built fresh by CI
 on an Apple-Silicon macOS 26 runner.
 
@@ -94,7 +94,7 @@ or add more, use the included helper — it captures the frontmost window and
 drops it into `docs/`:
 
 ```sh
-./tools/capture-screenshots.sh --open   # launch GlassPlay, then capture a window
+./tools/capture-screenshots.sh --open   # launch Mute, then capture a window
 ./tools/capture-screenshots.sh --screen # capture the whole screen instead
 ```
 
@@ -106,7 +106,7 @@ conforming to `public.audio`.
 
 ## Architecture
 
-GlassPlay is a single-target app with no third-party Swift dependencies. The
+Mute is a single-target app with no third-party Swift dependencies. The
 source lives in [`src/`](src):
 
 | File | Responsibility |
@@ -128,8 +128,8 @@ source lives in [`src/`](src):
 
 ## Privacy
 
-GlassPlay stores your library index as JSON, artwork files, and a Python venv
-under `~/Library/Application Support/GlassPlay/`; settings live in
+Mute stores your library index as JSON, artwork files, and a Python venv
+under `~/Library/Application Support/Mute/`; settings live in
 `UserDefaults`. `NSAppTransportSecurity` allows arbitrary loads because YouTube
 streams are served over dynamically resolved hosts; no telemetry is collected.
 
@@ -139,7 +139,7 @@ streams are served over dynamically resolved hosts; no telemetry is collected.
   `./build.sh` on every push and PR (on an Apple-Silicon `macos-26` runner) and
   uploads the bundle as a CI artifact.
 - **[Release workflow](.github/workflows/release.yml)** — builds and publishes a
-  GitHub Release with `GlassPlay.app.zip` whenever you push a `v*` tag:
+  GitHub Release with `Mute.app.zip` whenever you push a `v*` tag:
 
   ```sh
   git tag v1.0

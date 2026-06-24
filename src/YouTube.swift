@@ -110,7 +110,7 @@ enum DownloadState: Equatable {
 ///   • `yt-dlp` (+ `ffmpeg`) is the media layer — it resolves a videoId to a
 ///     playable stream and downloads audio.
 /// Streaming queues store "ytmusic://<videoId>" and resolve lazily through the
-/// Player; downloads land in ~/Music/GlassPlay/YouTube and import as tracks.
+    /// Player; downloads land in ~/Music/Mute/YouTube and import as tracks.
 @MainActor
 final class YouTubeService: ObservableObject {
     static let shared = YouTubeService()
@@ -160,7 +160,7 @@ final class YouTubeService: ObservableObject {
     /// App-support root, shared with the rest of the app.
     nonisolated static let appSupportDir: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("GlassPlay")
+        let dir = base.appendingPathComponent("Mute")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
@@ -169,7 +169,7 @@ final class YouTubeService: ObservableObject {
     nonisolated static let downloadDir: URL = {
         let base = FileManager.default.urls(for: .musicDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music")
-        let dir = base.appendingPathComponent("GlassPlay/YouTube")
+        let dir = base.appendingPathComponent("Mute/YouTube")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
@@ -180,7 +180,7 @@ final class YouTubeService: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in self?.online = path.status == .satisfied }
         }
-        monitor.start(queue: DispatchQueue(label: "glassplay.network.monitor"))
+        monitor.start(queue: DispatchQueue(label: "mute.network.monitor"))
         if enabled { refreshTool() }
     }
 
@@ -495,7 +495,7 @@ final class YouTubeService: ObservableObject {
         func get(_ url: URL) -> Data? {
             var req = URLRequest(url: url, timeoutInterval: 8)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.setValue("GlassPlay", forHTTPHeaderField: "User-Agent")
+            req.setValue("Mute", forHTTPHeaderField: "User-Agent")
             let sem = DispatchSemaphore(value: 0); var out: Data?
             URLSession.shared.dataTask(with: req) { d, _, _ in out = d; sem.signal() }.resume()
             _ = sem.wait(timeout: .now() + 9)
@@ -583,7 +583,7 @@ final class YouTubeService: ObservableObject {
 
     nonisolated private static func httpGET(_ url: URL) -> Data? {
         var req = URLRequest(url: url, timeoutInterval: 8)
-        req.setValue("GlassPlay (macOS music player)", forHTTPHeaderField: "User-Agent")
+        req.setValue("Mute (macOS music player)", forHTTPHeaderField: "User-Agent")
         let sem = DispatchSemaphore(value: 0)
         var out: Data?
         URLSession.shared.dataTask(with: req) { d, _, _ in out = d; sem.signal() }.resume()
@@ -812,7 +812,7 @@ final class YouTubeService: ObservableObject {
     func downloadedTrack(for id: String) -> Track? {
         let marker = "[\(id)]"
         return Library.shared.tracks.first {
-            $0.path.contains(marker) && $0.path.contains("/GlassPlay/YouTube/")
+            $0.path.contains(marker) && $0.path.contains("/Mute/YouTube/")
         }
     }
 
@@ -968,7 +968,7 @@ final class YouTubeService: ObservableObject {
         proc.standardError = errPipe
         var outData = Data(), errData = Data()
         let group = DispatchGroup()
-        let q = DispatchQueue(label: "glassplay.proc.read", attributes: .concurrent)
+        let q = DispatchQueue(label: "mute.proc.read", attributes: .concurrent)
         group.enter(); q.async { outData = outPipe.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         group.enter(); q.async { errData = errPipe.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         do { try proc.run() } catch { return ("", error.localizedDescription, -1) }

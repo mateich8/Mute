@@ -18,24 +18,24 @@
 		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
-	<string>GlassPlay</string>
+	<string>Mute</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.mateicada.glassplay</string>
+			<string>com.mateicada.mute</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>glassplay</string>
+				<string>mute</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.mateicada.glassplay</string>
+	<string>com.mateicada.mute</string>
 	<key>CFBundleName</key>
-	<string>Glass Play</string>
+	<string>Mute</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -52,15 +52,15 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSRemovableVolumesUsageDescription</key>
-	<string>Glass Play reads your album folders on external drives to find music and cover art.</string>
+	<string>Mute reads your album folders on external drives to find music and cover art.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Glass Play reads your album folders to find music and cover art.</string>
+	<string>Mute reads your album folders to find music and cover art.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>Glass Play reads your album folders to find music and cover art.</string>
+	<string>Mute reads your album folders to find music and cover art.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>Glass Play reads your album folders to find music and cover art.</string>
+	<string>Mute reads your album folders to find music and cover art.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
-	<string>Glass Play reads your album folders on network drives to find music and cover art.</string>
+	<string>Mute reads your album folders on network drives to find music and cover art.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 </dict>

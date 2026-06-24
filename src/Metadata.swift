@@ -125,7 +125,7 @@ enum MetadataService {
 
     /// AVFoundation can only author metadata into MPEG-4 family containers.
     /// MP3/FLAC/WAV tag writing needs a third-party tagging library (TagLib);
-    /// for those, edits apply to the Glass Play library only.
+    /// for those, edits apply to the Mute library only.
     static func canWriteTags(_ url: URL) -> Bool {
         ["m4a", "m4b", "mp4", "aac"].contains(url.pathExtension.lowercased())
     }
@@ -169,7 +169,7 @@ enum MetadataService {
         if !edit.grouping.isEmpty { newItems.append(item(.iTunesMetadataGrouping, edit.grouping)) }
         if !edit.comments.isEmpty { newItems.append(item(.iTunesMetadataUserComment, edit.comments)) }
         if let bpm = edit.bpm { newItems.append(item(.iTunesMetadataBeatsPerMin, String(bpm))) }
-        // Track/disc numbers and rating live in the Glass Play library (which
+        // Track/disc numbers and rating live in the Mute library (which
         // drives album ordering); they aren't round-tripped into the file's
         // binary trkn/disk atoms, which AVAssetExportSession can't reliably emit.
 

@@ -1,13 +1,13 @@
 #!/bin/zsh
-# Capture GlassPlay screenshots for the README and drop them in docs/.
+# Capture Mute screenshots for the README and drop them in docs/.
 #
 # Usage:
 #   ./tools/capture-screenshots.sh          # capture the frontmost window
 #   ./tools/capture-screenshots.sh --screen # capture the whole screen
-#   ./tools/capture-screenshots.sh --open   # launch GlassPlay first if needed
+#   ./tools/capture-screenshots.sh --open   # launch Mute first if needed
 #
 # Tips:
-#  - Put GlassPlay in the state you want to show (Now Playing, mini player,
+#  - Put Mute in the state you want to show (Now Playing, mini player,
 #    library grid, …) before running this.
 #  - Run it repeatedly; each shot gets a timestamp so nothing is overwritten.
 set -e
@@ -25,8 +25,8 @@ for arg in "$@"; do
 done
 
 if $launch; then
-  open -a GlassPlay.app 2>/dev/null || { echo "GlassPlay.app not found — run ./build.sh first." >&2; exit 1; }
-  echo "Launched GlassPlay — set up your shot and press Enter to capture."
+  open -a Mute.app 2>/dev/null || { echo "Mute.app not found — run ./build.sh first." >&2; exit 1; }
+  echo "Launched Mute — set up your shot and press Enter to capture."
   read -r ?"Press Enter when ready… "
 fi
 

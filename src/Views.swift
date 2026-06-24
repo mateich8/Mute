@@ -214,7 +214,7 @@ struct Sidebar: View {
                     .resizable()
                     .interpolation(.high)
                     .frame(width: 30, height: 30)
-                Text("GLASS PLAY")
+                Text("MUTE")
                     .font(.system(size: 14, weight: .bold))
                     .tracking(0.6)
                 Spacer()
@@ -1743,7 +1743,7 @@ struct SettingsSheet: View {
                             .font(.caption2)
                             .foregroundStyle(.orange)
                     }
-                    Text("Downloads saved to ~/Music/GlassPlay/YouTube.")
+                    Text("Downloads saved to ~/Music/Mute/YouTube.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 case .missing(let detail):
@@ -1815,7 +1815,7 @@ struct SettingsSheet: View {
 
     private var categoryNav: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("GLASS PLAY")
+            Text("MUTE")
                 .font(.system(size: 10, weight: .semibold)).tracking(0.8)
                 .foregroundStyle(.tertiary)
             Text("Settings")
@@ -3264,7 +3264,7 @@ struct TrackInfoSheet: View {
             .font(.caption)
 
             if !canWriteFile {
-                Text("Writing tags into \(track.url.pathExtension.uppercased()) files isn't supported by macOS APIs — changes apply to the Glass Play library only.")
+                Text("Writing tags into \(track.url.pathExtension.uppercased()) files isn't supported by macOS APIs — changes apply to the Mute library only.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -2,6 +2,13 @@ import SwiftUI
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Move the legacy "GlassPlay" data directories into place before any
+        // singleton touches the filesystem. Idempotent: once renamed the old
+        // directory is gone, so this becomes a no-op.
+        Self.migrateLegacyData()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NowPlayingBridge.shared.setup()
         FolderWatcher.shared.start()
@@ -35,13 +42,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.applicationIconImage = masked
     }
 
+    /// One-time rename of the legacy "GlassPlay" data directories to "Mute".
+    /// Runs before any singleton initializes so Library/YouTube read the moved
+    /// paths. Idempotent: a no-op once the old directory is gone.
+    static func migrateLegacyData() {
+        let fm = FileManager.default
+        let pairs: [(URL, URL)] = [
+            (fm.appSupport(named: "GlassPlay"),  fm.appSupport(named: "Mute")),
+            (fm.music(named: "GlassPlay"),        fm.music(named: "Mute")),
+        ]
+        for (old, new) in pairs where fm.fileExists(atPath: old.path) {
+            if fm.fileExists(atPath: new.path) {
+                // Destination already exists (e.g. an empty dir a singleton made
+                // before this ran) — merge in anything it's missing.
+                mergeMove(old, into: new)
+            } else {
+                try? fm.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? fm.moveItem(at: old, to: new)
+            }
+        }
+    }
+
+    /// Moves each item from `from` into `to` that `to` lacks, recursing into
+    /// directories present in both (so an empty pre-created destination still
+    /// receives the real data). Never overwrites existing files.
+    private static func mergeMove(_ from: URL, into to: URL) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(at: from, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        for item in items {
+            let dest = to.appendingPathComponent(item.lastPathComponent)
+            var destIsDir: ObjCBool = false
+            if !fm.fileExists(atPath: dest.path, isDirectory: &destIsDir) {
+                try? fm.moveItem(at: item, to: dest)
+            } else if destIsDir.boolValue,
+                      (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                mergeMove(item, into: dest)
+            }
+        }
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         Task { @MainActor in Library.shared.backfillFolderArtwork() }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        // glassplay:// automation URLs (Shortcuts "Open URL", AppleScript, CLI).
-        for url in urls where url.scheme == "glassplay" {
+        // mute:// automation URLs (Shortcuts "Open URL", AppleScript, CLI).
+        for url in urls where url.scheme == "mute" {
             Self.handleCommand(url)
         }
         let files = urls.filter(\.isFileURL)
@@ -58,8 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// glassplay://play | pause | toggle | next | previous
-    /// glassplay://playlist?name=Focus — glassplay://album?name=Koloss
+    /// mute://play | pause | toggle | next | previous
+    /// mute://playlist?name=Focus — mute://album?name=Koloss
     @MainActor
     private static func handleCommand(_ url: URL) {
         let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -94,12 +140,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+private extension FileManager {
+    func appSupport(named: String) -> URL {
+        urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(named)
+    }
+    func music(named: String) -> URL {
+        (urls(for: .musicDirectory, in: .userDomainMask).first
+            ?? homeDirectoryForCurrentUser.appendingPathComponent("Music"))
+            .appendingPathComponent(named)
+    }
+}
+
 @main
-struct GlassPlayApp: App {
+struct MuteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        Window("Glass Play", id: "main") {
+        Window("Mute", id: "main") {
             ContentView()
                 .onAppear { NSApp.activate(ignoringOtherApps: true) }
         }

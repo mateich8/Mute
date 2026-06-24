@@ -106,7 +106,7 @@ final class Library: ObservableObject {
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        dir = appSupport.appendingPathComponent("GlassPlay")
+        dir = appSupport.appendingPathComponent("Mute")
         artworkDir = dir.appendingPathComponent("Artwork")
         try? FileManager.default.createDirectory(at: artworkDir, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: file),

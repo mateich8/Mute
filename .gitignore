@@ -1,6 +1,6 @@
-# Build output — GlassPlay is a single-binary app rebuilt by ./build.sh.
-/GlassPlay
-/GlassPlay.app/
+# Build output — Mute is a single-binary app rebuilt by ./build.sh.
+/Mute
+/Mute.app/
 
 # macOS
 .DS_Store
