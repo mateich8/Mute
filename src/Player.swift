@@ -35,7 +35,17 @@ final class Player: NSObject, ObservableObject {
 
     @Published private(set) var tracks: [Track] = []
     @Published private(set) var currentIndex: Int? {
-        didSet { if autoplayRadio { Task { await extendRadio() } } }
+        didSet {
+            if autoplayRadio { Task { await extendRadio() } }
+            prefetchNextStream()
+        }
+    }
+
+    /// Resolve the next track's stream URL ahead of time so it starts instantly.
+    private func prefetchNextStream() {
+        guard let i = currentIndex, i + 1 < tracks.count,
+              let vid = tracks[i + 1].youtubeVideoID else { return }
+        YouTubeService.shared.prefetchStreamURL(videoId: vid)
     }
     /// When on, related tracks are appended endlessly so playback never ends.
     @Published private(set) var autoplayRadio = false
@@ -66,6 +76,9 @@ final class Player: NSObject, ObservableObject {
 
     private var file: AVAudioFile?
     private var sampleRate: Double = 44100
+    /// Current sample rate the engine graph is wired for; lets us skip the
+    /// costly engine.stop()/reconnect when consecutive tracks share a rate.
+    private var graphRate: Double = 0
     /// Track position where the current schedule started (changes on seek).
     private var offsetTime: TimeInterval = 0
     /// Bumped on every stop/reschedule so stale segment completions are ignored
@@ -101,8 +114,8 @@ final class Player: NSObject, ObservableObject {
         engine.attach(submix)
         engine.attach(eq)
         let hw = engine.outputNode.outputFormat(forBus: 0)
-        let graphFormat = AVAudioFormat(standardFormatWithSampleRate: hw.sampleRate > 0 ? hw.sampleRate : 44100,
-                                        channels: 2)
+        graphRate = hw.sampleRate > 0 ? hw.sampleRate : 44100
+        let graphFormat = AVAudioFormat(standardFormatWithSampleRate: graphRate, channels: 2)
         engine.connect(submix, to: eq, format: graphFormat)
         engine.connect(eq, to: engine.mainMixerNode, format: graphFormat)
         for (i, frequency) in Self.eqFrequencies.enumerated() {
@@ -598,13 +611,17 @@ final class Player: NSObject, ObservableObject {
         // rate-matched so no SRC happens anywhere; falls back silently.
         let wantBitPerfect = Settings.shared.bitPerfect
         let newBitPerfect = wantBitPerfect && BitPerfect.matchDeviceRate(to: sampleRate)
-        if newBitPerfect != bitPerfectActive || newBitPerfect {
+        let targetRate = newBitPerfect ? sampleRate : engine.outputNode.outputFormat(forBus: 0).sampleRate
+        // Only rebuild the graph (which requires a costly engine stop/restart and
+        // device re-clock) when bit-perfect toggles or the target rate changes —
+        // not on every track. Same-rate tracks then start instantly.
+        if newBitPerfect != bitPerfectActive || abs(targetRate - graphRate) > 1 {
             bitPerfectActive = newBitPerfect
             engine.stop()
-            let rate = newBitPerfect ? sampleRate : (engine.outputNode.outputFormat(forBus: 0).sampleRate)
-            if let graphFormat = AVAudioFormat(standardFormatWithSampleRate: rate > 0 ? rate : 44100, channels: 2) {
+            if let graphFormat = AVAudioFormat(standardFormatWithSampleRate: targetRate > 0 ? targetRate : 44100, channels: 2) {
                 engine.connect(submix, to: eq, format: graphFormat)
                 engine.connect(eq, to: engine.mainMixerNode, format: graphFormat)
+                graphRate = targetRate
             }
         }
 

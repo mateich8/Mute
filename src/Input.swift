@@ -27,7 +27,7 @@ enum KeyboardShortcuts {
             if ui.zenMode { withAnimation(.smooth(duration: 0.3)) { ui.zenMode = false }; return true }
             if ui.searchVisible { withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { ui.searchVisible = false; ui.searchText = "" }; return true }
             if !ui.albumMultiSelection.isEmpty { withAnimation(.smooth(duration: 0.2)) { ui.albumMultiSelection = [] }; return true }
-            if ui.showQueue { withAnimation(.smooth(duration: 0.35)) { ui.showQueue = false }; return true }
+            if ui.lyricsOpen { withAnimation(.smooth(duration: 0.3)) { ui.lyricsOpen = false }; return true }
             return false
         }
         // Cmd+F / Cmd+Shift+Z work even while editing text.

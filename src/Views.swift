@@ -35,7 +35,12 @@ final class UIState: ObservableObject {
     @Published var tab: Tab = .albums {
         didSet { if tab != .nowPlaying { lastLibraryTab = tab } }
     }
-    @Published var showQueue = false
+    /// Full-screen lyrics overlay (opened from the playing bar).
+    @Published var lyricsOpen = false
+    /// Hide the Now Playing side column (queue + trivia).
+    @Published var npSidebarHidden = false
+    /// Hide just the Song Trivia card.
+    @Published var triviaHidden = false
     /// Track for which the Get Info sheet is open.
     @Published var infoTrack: Track?
     /// Where the Now Playing back button returns to.
@@ -106,12 +111,12 @@ struct ContentView: View {
             .padding(.top, 26)
             .ignoresSafeArea(.container, edges: .top)
 
-            if ui.showQueue { queuePanel }
             if ui.zenMode { ZenModeView().zIndex(10).transition(.opacity) }
+            if ui.lyricsOpen { LyricsFullView().zIndex(20).transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
         .overlay(alignment: .trailing) { QueueDragZones() }
         .overlay(alignment: .bottom) {
-            if ui.tab != .nowPlaying, player.current != nil {
+            if player.current != nil, ui.tab != .nowPlaying {
                 MiniBar()
                     .padding(.bottom, 22)
                     .padding(.leading, kSidebarWidth + kPanelInset + 4)
@@ -149,49 +154,6 @@ struct ContentView: View {
         }
     }
 
-    private var queuePanel: some View {
-        HStack {
-            Spacer()
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Queue")
-                        .font(.headline)
-                    Spacer()
-                    Button { withAnimation(.smooth(duration: 0.35)) { ui.showQueue = false } } label: {
-                        Image(systemName: "xmark")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 22, height: 22)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close queue")
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 18)
-                .padding(.bottom, 10)
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(player.tracks.enumerated()), id: \.element.id) { index, track in
-                            QueueRow(track: track,
-                                     isCurrent: index == player.currentIndex,
-                                     isPlaying: player.isPlaying,
-                                     play: { player.play(at: index) },
-                                     remove: { player.removeFromQueue(ids: [track.id]) })
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 12)
-                }
-            }
-            .frame(width: 270)
-            .frame(maxHeight: .infinity)
-            .appGlass(in: .rect(cornerRadius: 26))
-            .padding(.vertical, 70)
-            .padding(.trailing, 20)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
-    }
 }
 
 // MARK: - Sidebar
@@ -209,19 +171,8 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 30, height: 30)
-                Text("MUTE")
-                    .font(.system(size: 14, weight: .bold))
-                    .tracking(0.6)
-                Spacer()
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 18)
+            // Leave clean room at the top for the window's traffic-light buttons.
+            Color.clear.frame(height: 18)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -373,10 +324,6 @@ struct MainArea: View {
             if library.importing { ProgressView().controlSize(.small) }
             Spacer(minLength: 12)
             TopSearchField()
-            Button { withAnimation(.smooth(duration: 0.35)) { ui.showQueue.toggle() } } label: {
-                Image(systemName: "list.bullet").frame(width: 18, height: 18)
-            }
-            .buttonStyle(.glass).buttonBorderShape(.circle).help("Queue")
             Button { showImporter = true } label: {
                 Image(systemName: "plus").frame(width: 18, height: 18)
             }
@@ -838,15 +785,34 @@ struct NowPlayingView: View {
         "\(player.current?.id.uuidString ?? "")|\(settings.geniusToken.isEmpty)"
     }
 
+    /// Trivia/lyrics features apply to tracks that came from the app (streamed
+    /// or downloaded from YouTube), not the user's own imported files.
+    private func isAppTrack(_ t: Track) -> Bool {
+        t.youtubeVideoID != nil || t.path.contains("/Mute/YouTube/")
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             playerColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if player.current != nil {
+            if player.current != nil, !ui.npSidebarHidden {
                 sidePanel
                     .frame(width: 290)
                     .padding(.trailing, 24)
                     .padding(.vertical, 24)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if player.current != nil, ui.npSidebarHidden {
+                Button { withAnimation(.smooth(duration: 0.3)) { ui.npSidebarHidden = false } } label: {
+                    Image(systemName: "sidebar.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32).contentShape(Circle())
+                }
+                .buttonStyle(.glass).buttonBorderShape(.circle)
+                .padding(.trailing, 22).padding(.top, 20)
+                .help("Show Up Next")
             }
         }
         .background(GestureCatcher())
@@ -858,7 +824,7 @@ struct NowPlayingView: View {
             }
         }
         .task(id: triviaKey) {
-            if let track = player.current {
+            if let track = player.current, isAppTrack(track) {
                 youtube.loadTrivia(for: track)
             } else {
                 youtube.clearTrivia()
@@ -933,13 +899,15 @@ struct NowPlayingView: View {
     private var sidePanel: some View {
         VStack(spacing: 14) {
             upNextCard
-            triviaCard
+            if let track = player.current, isAppTrack(track) {
+                triviaCard
+            }
         }
     }
 
     private var upNextCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("Up Next").font(.headline)
                 Spacer()
                 Button { player.setAutoplayRadio(!player.autoplayRadio) } label: {
@@ -951,6 +919,15 @@ struct NowPlayingView: View {
                 .buttonStyle(.glass).buttonBorderShape(.circle)
                 .foregroundStyle(player.autoplayRadio ? Color.accentColor : .secondary)
                 .help(player.autoplayRadio ? "Autoplay related: on" : "Keep playing related music forever")
+                Button { withAnimation(.smooth(duration: 0.3)) { ui.npSidebarHidden = true } } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.glass).buttonBorderShape(.circle)
+                .foregroundStyle(.secondary)
+                .help("Hide panel")
             }
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
 
@@ -1173,6 +1150,127 @@ struct LyricsStrip: View {
         .id(idx)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
         .animation(.smooth(duration: 0.3), value: idx)
+    }
+}
+
+/// Full-screen Apple-Music-style lyrics: large synced lines that scroll and
+/// highlight with playback; tap a line to seek. Opened from the playing bar.
+struct LyricsFullView: View {
+    @ObservedObject private var youtube = YouTubeService.shared
+    @ObservedObject private var player = Player.shared
+    @ObservedObject private var library = Library.shared
+    @ObservedObject private var clock = PlaybackClock.shared
+    @ObservedObject private var ui = UIState.shared
+
+    private var lines: [LyricLine] { youtube.lyrics?.lines ?? [] }
+    private var currentIndex: Int {
+        let t = clock.elapsed + 0.25
+        var idx = 0
+        for (i, l) in lines.enumerated() { if l.time <= t { idx = i } else { break } }
+        return idx
+    }
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            backdrop.opacity(0.45)
+            Color.black.opacity(0.35)
+
+            VStack(spacing: 0) {
+                header
+                content
+            }
+        }
+        .ignoresSafeArea()
+        .preferredColorScheme(.dark)
+        .task(id: player.current?.id) {
+            if let track = player.current { youtube.loadLyrics(for: track) }
+        }
+    }
+
+    private var backdrop: some View {
+        Color.clear.overlay {
+            if let art = library.artwork(for: player.current) {
+                Image(nsImage: art).resizable().scaledToFill()
+            } else if let url = player.current?.remoteArtworkURL {
+                RemoteArtwork(url: url, fallback: player.current?.remoteArtworkFallbackURL) { Color.clear }
+            }
+        }
+        .clipped()
+        .blur(radius: 90)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(player.current?.title ?? "")
+                    .font(.system(size: 26, weight: .heavy)).lineLimit(2)
+                Text(player.current?.artist.isEmpty == false ? player.current!.artist : "Unknown Artist")
+                    .font(.title3).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button { withAnimation(.smooth(duration: 0.3)) { ui.lyricsOpen = false } } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 36, height: 36).contentShape(Circle())
+            }
+            .buttonStyle(.glass).buttonBorderShape(.circle)
+            .help("Close lyrics")
+        }
+        .padding(.horizontal, 44).padding(.top, 56).padding(.bottom, 18)
+    }
+
+    @ViewBuilder private var content: some View {
+        if youtube.lyricsLoading {
+            Spacer(); ProgressView().controlSize(.large); Spacer()
+        } else if let ly = youtube.lyrics, ly.synced {
+            syncedLyrics(ly)
+        } else if let ly = youtube.lyrics, !ly.plain.isEmpty {
+            ScrollView {
+                Text(ly.plain)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .frame(maxWidth: 680, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 44).padding(.vertical, 30)
+            }
+        } else {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "quote.bubble").font(.system(size: 38)).foregroundStyle(.secondary)
+                Text("No lyrics available for this track.").font(.title3).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private func syncedLyrics(_ ly: Lyrics) -> some View {
+        let cur = min(currentIndex, ly.lines.count - 1)
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(Array(ly.lines.enumerated()), id: \.element.id) { i, line in
+                        Text(line.text.isEmpty ? "♪" : line.text)
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(i == cur ? Color.primary : Color.secondary.opacity(0.4))
+                            .id(line.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                let dur = player.currentDuration
+                                if dur > 0 { player.seek(to: line.time / dur) }
+                            }
+                    }
+                }
+                .frame(maxWidth: 680, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 44).padding(.top, 20).padding(.bottom, 160)
+            }
+            .onChange(of: cur) { _, idx in
+                withAnimation(.smooth(duration: 0.45)) {
+                    proxy.scrollTo(ly.lines[min(idx, ly.lines.count - 1)].id, anchor: .center)
+                }
+            }
+        }
     }
 }
 
@@ -3377,8 +3475,6 @@ struct PlaylistsView: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("Playlists")
-                        .font(.title2.weight(.semibold))
                     Spacer()
                     Button {
                         ui.playlistSelection = library.createPlaylist().id
@@ -3389,10 +3485,10 @@ struct PlaylistsView: View {
                     .buttonStyle(.glass)
                 }
                 .padding(.horizontal, 28)
-                .padding(.top, 18)
-                .padding(.bottom, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 14)
 
-                if library.playlists.isEmpty {
+                if library.playlists.isEmpty && library.favorites.isEmpty {
                     Spacer()
                     HStack {
                         Spacer()
@@ -3414,33 +3510,16 @@ struct PlaylistsView: View {
                     Spacer()
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 4) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 18, alignment: .top)], spacing: 22) {
                             if !library.favorites.isEmpty {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "heart.fill")
-                                        .font(.callout)
-                                        .foregroundStyle(.pink)
-                                        .frame(width: 22)
-                                    Text("Favourites")
-                                        .font(.body.weight(.medium))
-                                    Spacer()
-                                    Text("\(library.favorites.count) songs")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 11)
-                                .contentShape(Rectangle())
-                                .onTapGesture { showFavorites = true }
+                                FavoritesCard(count: library.favorites.count) { showFavorites = true }
                             }
                             ForEach(library.playlists) { playlist in
-                                PlaylistRow(playlist: playlist) { ui.playlistSelection = playlist.id }
+                                PlaylistCard(playlist: playlist) { ui.playlistSelection = playlist.id }
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 4)
                         .padding(.bottom, 96)
                     }
                 }
@@ -3449,34 +3528,30 @@ struct PlaylistsView: View {
     }
 }
 
-struct PlaylistRow: View {
+/// Album-grid-style playlist card: a 2×2 cover collage of its tracks, name and
+/// song count below — matching the Albums/Artists views.
+struct PlaylistCard: View {
     let playlist: Playlist
     let open: () -> Void
     @ObservedObject private var library = Library.shared
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "music.note.list")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(width: 22)
-            Text(playlist.name)
-                .font(.body.weight(.medium))
-            Spacer()
-            Text("\(playlist.trackIDs.count) songs")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            Image(systemName: "chevron.right")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 8) {
+                PlaylistCover(tracks: library.tracks(for: playlist))
+                Text(playlist.name)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text("\(playlist.trackIDs.count) song\(playlist.trackIDs.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .background(hovered ? AnyShapeStyle(.white.opacity(0.08)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 12))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
+        .buttonStyle(.plain)
+        .scaleEffect(hovered ? 1.02 : 1)
+        .animation(.smooth(duration: 0.18), value: hovered)
         .onHover { hovered = $0 }
         .contextMenu {
             Button("Play") {
@@ -3486,6 +3561,88 @@ struct PlaylistRow: View {
             Divider()
             Button("Delete Playlist", role: .destructive) { library.deletePlaylist(playlist.id) }
         }
+    }
+}
+
+/// A playlist cover: a 2×2 collage of up to four distinct track covers (local
+/// or remote), a single cover for short playlists, or a gradient when empty.
+struct PlaylistCover: View {
+    let tracks: [Track]
+    @ObservedObject private var library = Library.shared
+
+    private var picks: [Track] {
+        var seen = Set<String>(); var out: [Track] = []
+        for t in tracks {
+            let key = t.artworkFile ?? t.artworkURL ?? t.albumKey ?? t.id.uuidString
+            if seen.insert(key).inserted { out.append(t) }
+            if out.count == 4 { break }
+        }
+        return out
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let s = geo.size.width
+            ZStack {
+                if picks.isEmpty {
+                    LinearGradient(colors: [Color(white: 0.24), Color(white: 0.12)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: s * 0.26, weight: .light))
+                        .foregroundStyle(.white.opacity(0.55))
+                } else if picks.count >= 4 {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) { tile(picks[0], s / 2); tile(picks[1], s / 2) }
+                        HStack(spacing: 0) { tile(picks[2], s / 2); tile(picks[3], s / 2) }
+                    }
+                } else {
+                    tile(picks[0], s)
+                }
+            }
+            .frame(width: s, height: s)
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)))
+    }
+
+    private func tile(_ t: Track, _ size: CGFloat) -> some View {
+        ArtworkSquare(image: library.artwork(for: t), corner: 0,
+                      remote: t.remoteArtworkURL, remoteFallback: t.remoteArtworkFallbackURL)
+            .frame(width: size, height: size)
+    }
+}
+
+/// The Favourites entry, styled as a card to match the playlist grid.
+struct FavoritesCard: View {
+    let count: Int
+    let open: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    LinearGradient(colors: [Color(.sRGB, red: 0.95, green: 0.30, blue: 0.45),
+                                            Color(.sRGB, red: 0.55, green: 0.10, blue: 0.35)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.10)))
+                Text("Favourites")
+                    .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                Text("\(count) song\(count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(hovered ? 1.02 : 1)
+        .animation(.smooth(duration: 0.18), value: hovered)
+        .onHover { hovered = $0 }
     }
 }
 
@@ -3811,6 +3968,7 @@ struct MiniBar: View {
     @ObservedObject private var player = Player.shared
     @ObservedObject private var library = Library.shared
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var ui = UIState.shared
 
     var body: some View {
         GlassEffectContainer {
@@ -3858,13 +4016,35 @@ struct MiniBar: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    Divider().frame(height: 20).opacity(0.25)
+
+                    Button { withAnimation(.smooth(duration: 0.3)) { ui.lyricsOpen.toggle() } } label: {
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 13))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(ui.lyricsOpen ? Color.accentColor : .secondary)
+                    .help("Lyrics")
+
+                    Button { withAnimation(.smooth(duration: 0.3)) { ui.tab = .nowPlaying } } label: {
+                        Image(systemName: "list.bullet")
+                            .font(.system(size: 13))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Up Next")
                 }
                 MiniProgress()
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
             .padding(.bottom, 9)
-            .frame(width: 410)
+            .frame(width: 470)
             .appGlass(in: .rect(cornerRadius: 26), interactive: true)
         }
     }

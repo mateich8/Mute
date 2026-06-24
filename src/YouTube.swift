@@ -220,7 +220,9 @@ final class YouTubeService: ObservableObject {
         tool = .checking
         cachedPaths.removeAll()
         Self.ensureHelper()
-        Task.detached {
+        // Low priority so the Python `import ytmusicapi` probe doesn't compete
+        // with the UI coming up at launch.
+        Task.detached(priority: .utility) {
             let ytdlp = Self.locate("yt-dlp")
             let music = Self.ytmusicReady()
             let status: ToolStatus
@@ -704,11 +706,32 @@ final class YouTubeService: ObservableObject {
         return url(p["thumb"])
     }
 
-    /// Resolves a videoId to a playable audio URL (called by the Player).
+    // Resolved stream URLs are valid for hours; cache them so replays and
+    // prefetched next-tracks start instantly instead of re-running yt-dlp.
+    private var streamURLCache: [String: (url: URL, at: Date)] = [:]
+    private static let streamURLTTL: TimeInterval = 5 * 3600
+
+    func cachedStreamURL(videoId: String) -> URL? {
+        guard let e = streamURLCache[videoId], Date().timeIntervalSince(e.at) < Self.streamURLTTL else { return nil }
+        return e.url
+    }
+
+    /// Resolves a videoId to a playable audio URL (called by the Player), using
+    /// the cache when fresh.
     func resolveStreamURL(videoId: String) async -> URL? {
+        if let cached = cachedStreamURL(videoId: videoId) { return cached }
         guard let ytdlp = path(for: "yt-dlp") else { return nil }
         let ffmpeg = path(for: "ffmpeg")
-        return await Task.detached { Self.resolveStream(ytdlp: ytdlp, ffmpeg: ffmpeg, id: videoId) }.value
+        let url = await Task.detached { Self.resolveStream(ytdlp: ytdlp, ffmpeg: ffmpeg, id: videoId) }.value
+        if let url { streamURLCache[videoId] = (url, Date()) }
+        return url
+    }
+
+    /// Resolves (and caches) a stream URL ahead of time — used to prefetch the
+    /// next track so it starts with no delay.
+    func prefetchStreamURL(videoId: String) {
+        guard ready, online, cachedStreamURL(videoId: videoId) == nil else { return }
+        Task { _ = await resolveStreamURL(videoId: videoId) }
     }
 
     /// AVFoundation can't decode Opus/WebM, so force an m4a/mp4 stream.
