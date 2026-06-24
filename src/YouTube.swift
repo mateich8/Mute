@@ -364,6 +364,47 @@ final class YouTubeService: ObservableObject {
 
     func isInLibrary(_ id: String) -> Bool { Library.shared.isInLibrary(youtubeID: id) }
 
+    /// Adds a YouTube song to a playlist: imports it as a streaming library
+    /// entry (if not already there), then appends it to the playlist.
+    func addToPlaylist(_ result: YTResult, playlist id: UUID) {
+        let track = ytTrack(result, album: result.title, albumArtist: result.artist, cover: result.cover)
+        let added = Library.shared.addStreaming([track])
+        let libTrack = added.first ?? Library.shared.tracks.first { $0.path == track.path }
+        if let libTrack { Library.shared.add(trackIDs: [libTrack.id], to: id) }
+    }
+
+    /// Lightweight song-only search that returns results without mutating the
+    /// shared search state (used by the Add-to-playlist picker).
+    func searchSongs(_ query: String) async -> [YTResult] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ready, online, !q.isEmpty else { return [] }
+        return await Task.detached { () -> [YTResult] in
+            let (data, _) = Self.runHelper(["search", q])
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let songs = obj["songs"] as? [[String: Any]] else { return [] }
+            return songs.compactMap { s in
+                guard let id = s["id"] as? String, let title = s["title"] as? String else { return nil }
+                let cover = (s["thumb"] as? String).flatMap { URL(string: $0) }
+                return YTResult(id: id, title: title, artist: (s["artist"] as? String) ?? "",
+                                duration: (s["duration"] as? Double) ?? 0, cover: cover)
+            }
+        }.value
+    }
+
+    /// Fetches an artist's YouTube Music bio text (used to infer genre).
+    func artistBio(name: String) async -> String? {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ready, online, !n.isEmpty else { return nil }
+        return await Task.detached { () -> String? in
+            let (data, _) = Self.runHelper(["bio", n])
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let bio = obj["bio"] as? String, !bio.isEmpty else { return nil }
+            return bio
+        }.value
+    }
+
     // MARK: Autoplay radio data
 
     func radioTracks(seed videoID: String) async -> [YTResult] {
@@ -388,9 +429,71 @@ final class YouTubeService: ObservableObject {
     nonisolated private static func fetchRadio(_ videoID: String) -> [YTResult] {
         let (data, _) = runHelper(["radio", videoID])
         guard let data else { return [] }
-        struct Raw: Decodable { let id: String; let title: String; let artist: String; let duration: Double? }
+        struct Raw: Decodable {
+            let id: String; let title: String; let artist: String
+            let duration: Double?; let type: String?; let thumb: String?
+        }
         guard let arr = try? JSONDecoder().decode([Raw].self, from: data) else { return [] }
-        return arr.map { YTResult(id: $0.id, title: $0.title, artist: $0.artist, duration: $0.duration ?? 0) }
+        // Keep only official audio ("art tracks", ATV) — clean audio + square
+        // album covers — and drop anything titled like a video/live clip.
+        func isVideoTitle(_ t: String) -> Bool {
+            let l = t.lowercased()
+            return l.contains("official video") || l.contains("music video")
+                || l.contains("lyric video") || l.contains("(live") || l.contains("visualizer")
+        }
+        let pool = arr.filter { $0.type == "MUSIC_VIDEO_TYPE_ATV" && !isVideoTitle($0.title) }
+        return pool.map {
+            YTResult(id: $0.id, title: $0.title, artist: $0.artist,
+                     duration: $0.duration ?? 0, cover: url($0.thumb))
+        }
+    }
+
+    // MARK: New releases (New tab)
+
+    @Published private(set) var newReleases: [YTAlbum] = []
+    @Published private(set) var newReleasesLoading = false
+    @Published private(set) var artistNew: [YTAlbum] = []   // latest release per top artist
+    private var artistNewLoaded = false
+
+    /// Latest release from each of the user's most-played artists (taste-based).
+    func loadArtistNew(force: Bool = false) {
+        guard ready, online, force || !artistNewLoaded else { return }
+        let names = Array(Library.shared.topArtists.prefix(6).map(\.name)).filter { !$0.isEmpty }
+        guard !names.isEmpty else { return }
+        artistNewLoaded = true
+        Task {
+            var out: [YTAlbum] = []
+            var seen = Set<String>()
+            for name in names {
+                let detail = await Task.detached { Self.fetchArtistByName(name) }.value
+                if let a = detail?.albums.first ?? detail?.singles.first, !seen.contains(a.id) {
+                    seen.insert(a.id); out.append(a)
+                }
+            }
+            if !out.isEmpty { artistNew = out }
+        }
+    }
+
+    /// Loads region new-release albums from the YT Music home feed (once).
+    func loadNewReleases(force: Bool = false) {
+        guard ready, online, !newReleasesLoading, force || newReleases.isEmpty else { return }
+        newReleasesLoading = true
+        Task {
+            let albums = await Task.detached { () -> [YTAlbum] in
+                let (data, _) = Self.runHelper(["explore"])
+                guard let data,
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let arr = obj["newAlbums"] as? [[String: Any]] else { return [] }
+                return arr.compactMap { a in
+                    guard let id = a["id"] as? String, let title = a["title"] as? String else { return nil }
+                    return YTAlbum(id: id, title: title, artist: (a["artist"] as? String) ?? "",
+                                   year: (a["year"] as? String) ?? "", kind: (a["kind"] as? String) ?? "Album",
+                                   thumb: (a["thumb"] as? String).flatMap { URL(string: $0) })
+                }
+            }.value
+            if !albums.isEmpty { newReleases = albums }
+            newReleasesLoading = false
+        }
     }
 
     // MARK: Recommendations (For You)
@@ -404,22 +507,36 @@ final class YouTubeService: ObservableObject {
     /// tracks already in the library.
     func loadRecommendations(force: Bool = false) {
         guard ready, online, !recommendationsLoading else { return }
-        let currentVid = Player.shared.current?.youtubeVideoID
-        let topVid = Library.shared.mostPlayed.first(where: { $0.youtubeVideoID != nil })?.youtubeVideoID
+        let cur = Player.shared.current
+        let seedTrack = (cur?.youtubeVideoID != nil)
+            ? cur : Library.shared.mostPlayed.first(where: { $0.youtubeVideoID != nil })
         let topArtist = Library.shared.topArtists.first?.name
         Task {
-            var seed = currentVid ?? topVid
+            // Seed radio from the official-audio (ATV) id — radio from a music
+            // *video* returns only videos, which we'd then filter to nothing.
+            var seed: String?
+            if let t = seedTrack, let vid = t.youtubeVideoID {
+                seed = await officialAudioID(for: vid, title: t.title, artist: t.artist)
+            }
+            // No listening seed yet — steer by a preferred genre if the user set one.
+            if seed == nil, let genre = ProfileStore.shared.profile.preferredGenres.randomElement() {
+                seed = await seedVideoID(artist: genre, title: "songs")
+            }
             if seed == nil, let topArtist, !topArtist.isEmpty {
                 seed = await seedVideoID(artist: topArtist, title: "")
             }
             guard let seed else { recommendations = []; return }
             if !force, seed == recsSeed, !recommendations.isEmpty { return }
-            recsSeed = seed
             recommendationsLoading = true
             let results = await Task.detached { Self.fetchRadio(seed) }.value
             let libIDs = Set(Library.shared.tracks.compactMap { $0.youtubeVideoID })
-            recommendations = results.filter { $0.id != seed && !libIDs.contains($0.id) }
+            let filtered = results.filter { $0.id != seed && !libIDs.contains($0.id) }
             recommendationsLoading = false
+            // Only commit a non-empty result + remember the seed; a transient
+            // empty fetch then retries on the next trigger instead of sticking.
+            guard !filtered.isEmpty else { return }
+            recommendations = filtered
+            recsSeed = seed
         }
     }
 
@@ -764,6 +881,61 @@ final class YouTubeService: ObservableObject {
         Task { _ = await resolveStreamURL(videoId: videoId) }
     }
 
+    // MARK: Official-audio canonicalization
+
+    // Some library entries point at a music *video* (or live/lyric upload) whose
+    // audio differs from the studio master. We map those to YouTube Music's
+    // official-audio "art track" (ATV) so playback and radio use clean audio.
+    // Persisted so the title→ATV lookup only happens once per track, ever.
+    private lazy var atvMap: [String: String] = Self.loadATVMap()
+
+    private static var atvMapPath: String { appSupportDir.appendingPathComponent("atvmap.json").path }
+    private static func loadATVMap() -> [String: String] {
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: atvMapPath)),
+              let m = try? JSONDecoder().decode([String: String].self, from: d) else { return [:] }
+        return m
+    }
+    private func saveATVMap() {
+        if let d = try? JSONEncoder().encode(atvMap) {
+            try? d.write(to: URL(fileURLWithPath: Self.atvMapPath))
+        }
+    }
+
+    /// Returns the official-audio (ATV) videoId for a track, falling back to the
+    /// original id when no confident match exists. Cached + persisted.
+    func officialAudioID(for videoId: String, title: String, artist: String) async -> String {
+        if let mapped = atvMap[videoId] { return mapped }
+        guard ready, online, !title.isEmpty else { return videoId }
+        let result = await Task.detached { () -> String in
+            let q = "\(title) \(artist)".trimmingCharacters(in: .whitespaces)
+            let (data, _) = Self.runHelper(["search", q])
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let songs = obj["songs"] as? [[String: Any]], !songs.isEmpty else { return videoId }
+            // The "songs" filter only returns ATV tracks; pick the first whose
+            // title (and artist, when known) matches, so we never swap in a
+            // different song. Otherwise keep the original id.
+            let want = Self.norm(title), wantArtist = Self.norm(artist)
+            for s in songs {
+                guard let id = s["id"] as? String, let t = s["title"] as? String else { continue }
+                let tn = Self.norm(t), an = Self.norm((s["artist"] as? String) ?? "")
+                let titleOK = tn == want || tn.contains(want) || want.contains(tn)
+                let artistOK = wantArtist.isEmpty || an.contains(wantArtist) || wantArtist.contains(an)
+                if titleOK && artistOK { return id }
+            }
+            return videoId
+        }.value
+        atvMap[videoId] = result
+        saveATVMap()
+        return result
+    }
+
+    /// Lowercased, diacritic- and punctuation-stripped key for fuzzy matching.
+    nonisolated static func norm(_ s: String) -> String {
+        s.lowercased().folding(options: .diacriticInsensitive, locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
+    }
+
     /// AVFoundation can't decode Opus/WebM, so force an m4a/mp4 stream.
     nonisolated private static func resolveStream(ytdlp: String, ffmpeg: String?, id: String) -> URL? {
         var args = ["--no-warnings", "-f", "ba[ext=m4a]/ba[ext=mp4]/b[ext=mp4]/b",
@@ -1096,7 +1268,8 @@ extension YouTubeService {
         sys.exit(0)
 
     def thumb(o):
-        ts = o.get("thumbnails") or []
+        # watch-playlist/radio tracks use "thumbnail" (singular); most others use "thumbnails".
+        ts = o.get("thumbnails") or o.get("thumbnail") or []
         if not ts:
             return None
         url = ts[-1].get("url")
@@ -1268,27 +1441,57 @@ extension YouTubeService {
                     if t.get("videoId"):
                         r.append({"id": t["videoId"], "title": t.get("title") or "",
                                   "artist": first_artist(t),
-                                  "duration": t.get("duration_seconds") or _sec(t.get("length"))})
+                                  "duration": t.get("duration_seconds") or _sec(t.get("length")),
+                                  "type": t.get("videoType") or "",
+                                  "thumb": thumb(t)})
                 return r
-            # get_watch_playlist intermittently throws while parsing the related
-            # tab (after tracks are built). Try several endpoints/retries — these
-            # hit different code paths, so one usually succeeds.
+            # Only the radio endpoints return official-audio tracks (ATV) with
+            # album-art covers; the plain watch-playlist returns music *videos*,
+            # so it's intentionally excluded. get_watch_playlist intermittently
+            # throws while parsing the related tab, so retry each.
+            def _has_atv(items):
+                return any(t.get("type") == "MUSIC_VIDEO_TYPE_ATV" for t in items)
             attempts = [
                 lambda: yt.get_watch_playlist(videoId=vid, radio=True, limit=40),
                 lambda: yt.get_watch_playlist(playlistId="RDAMVM" + vid, limit=40),
-                lambda: yt.get_watch_playlist(videoId=vid, limit=40),
             ]
             out = []
             for fn in attempts:
-                for _ in range(2):
+                for _ in range(3):
                     try:
-                        out = _collect(fn())
+                        cur = _collect(fn())
                     except Exception:
-                        out = []
-                    if out:
+                        cur = []
+                    if _has_atv(cur):
+                        out = cur
                         break
-                if out:
+                    if cur and not out:
+                        out = cur
+                if _has_atv(out):
                     break
+            print(json.dumps(out))
+        elif cmd == "explore":
+            # New-release ALBUMS (openable) + a few featured playlists, from the
+            # region's YT Music home feed.
+            out = {"newAlbums": []}
+            try:
+                home = yt.get_home(limit=10)
+                seen = set()
+                for sec in home:
+                    if "new release" not in (sec.get("title") or "").lower():
+                        continue
+                    for r in (sec.get("contents") or []):
+                        bid = r.get("browseId") or ""
+                        if not bid.startswith("MPRE") or bid in seen:
+                            continue
+                        seen.add(bid)
+                        arts = r.get("artists") or []
+                        artist = arts[0]["name"] if arts and arts[0].get("name") else (r.get("subtitle") or "")
+                        out["newAlbums"].append({"id": bid, "title": r.get("title") or "",
+                                                 "artist": artist, "year": "",
+                                                 "kind": "Album", "thumb": thumb(r)})
+            except Exception as e:
+                out["error"] = str(e)
             print(json.dumps(out))
         else:
             print(json.dumps({"error": "unknown command"}))

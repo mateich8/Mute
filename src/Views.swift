@@ -3,30 +3,34 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum Tab: String, CaseIterable, Identifiable {
-    case forYou, nowPlaying, songs, albums, artists, playlists, youtube
+    case home, new, nowPlaying, songs, albums, artists, playlists, youtube, profile
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .forYou: return "sparkles"
+        case .home: return "house.fill"
+        case .new: return "square.grid.2x2.fill"
         case .nowPlaying: return "waveform"
         case .songs: return "music.note"
-        case .albums: return "square.grid.2x2"
+        case .albums: return "rectangle.stack.fill"
         case .artists: return "music.mic"
         case .playlists: return "music.note.list"
         case .youtube: return "play.rectangle.fill"
+        case .profile: return "person.crop.circle"
         }
     }
 
     var help: String {
         switch self {
-        case .forYou: return "For You"
+        case .home: return "Home"
+        case .new: return "New"
         case .nowPlaying: return "Now Playing"
         case .songs: return "Songs"
         case .albums: return "Albums"
         case .artists: return "Artists"
         case .playlists: return "Playlists"
         case .youtube: return "YouTube"
+        case .profile: return "Profile"
         }
     }
 }
@@ -130,6 +134,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .containerBackground(settings.windowBackground, for: .window)
         .sheet(isPresented: $showSettings) { SettingsSheet() }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in showSettings = true }
         .sheet(item: $ui.infoTrack) { track in TrackInfoSheet(track: track) }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: [.audio, .folder],
@@ -166,9 +171,10 @@ struct Sidebar: View {
     @ObservedObject private var ui = UIState.shared
     @ObservedObject private var library = Library.shared
     @ObservedObject private var youtube = YouTubeService.shared
+    @ObservedObject private var profileStore = ProfileStore.shared
 
     private var librarySections: [Tab] {
-        [.forYou, .nowPlaying, .songs, .albums, .artists, .playlists]
+        [.home, .new, .nowPlaying, .songs, .albums, .artists, .playlists]
     }
 
     var body: some View {
@@ -193,15 +199,23 @@ struct Sidebar: View {
             Spacer(minLength: 0)
 
             Divider().opacity(0.2).padding(.horizontal, 16)
-            HStack(spacing: 8) {
-                Button { showSettings = true } label: {
-                    Label("Settings", systemImage: "gearshape")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 4)
+            HStack(spacing: 10) {
+                Button { withAnimation(.smooth(duration: 0.25)) { ui.tab = .profile } } label: {
+                    HStack(spacing: 8) {
+                        SidebarAvatar(image: profileStore.avatar, size: 28)
+                        Text(profileStore.profile.displayName)
+                            .font(.caption.weight(.semibold)).lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.plain)
+                .help("Your profile")
+                Spacer(minLength: 4)
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape").frame(width: 18, height: 18)
+                }
+                .buttonStyle(.glass).buttonBorderShape(.circle)
                 .help("Settings")
-                Spacer()
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -286,13 +300,15 @@ struct MainArea: View {
     private var sectionTitle: String {
         if !ui.debouncedSearch.isEmpty { return "Search" }
         switch ui.tab {
-        case .forYou: return "For You"
+        case .home: return "Home"
+        case .new: return "New"
         case .nowPlaying: return "Now Playing"
         case .songs: return "Songs"
         case .albums: return "Albums"
         case .artists: return "Artists"
         case .playlists: return "Playlists"
         case .youtube: return "YouTube"
+        case .profile: return "Profile"
         }
     }
 
@@ -336,13 +352,15 @@ struct MainArea: View {
 
     @ViewBuilder private var content: some View {
         switch ui.tab {
-        case .forYou: ForYouView()
+        case .home: HomeView()
+        case .new: NewView()
         case .nowPlaying: NowPlayingView()
         case .songs: AllSongsView()
         case .albums: AlbumsView()
         case .artists: ArtistsView()
         case .playlists: PlaylistsView()
         case .youtube: YouTubeView()
+        case .profile: ProfileView()
         }
     }
 }
@@ -774,9 +792,9 @@ struct ArtistBio: View {
     }
 }
 
-// MARK: - For You (recommendations + listening stats)
+// MARK: - Home (top picks + recommendations + listening stats)
 
-struct ForYouView: View {
+struct HomeView: View {
     @ObservedObject private var library = Library.shared
     @ObservedObject private var player = Player.shared
     @ObservedObject private var youtube = YouTubeService.shared
@@ -788,6 +806,7 @@ struct ForYouView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
+                topPicksSection
                 recommendationsSection
                 if !recents.isEmpty { recentlyPlayedSection }
                 if !mostPlayed.isEmpty { mostPlayedSection }
@@ -805,6 +824,87 @@ struct ForYouView: View {
 
     private func header(_ title: String) -> some View {
         Text(title).font(.title3.weight(.bold)).padding(.horizontal, 28)
+    }
+
+    // MARK: Top Picks for You (big gradient cards)
+
+    private struct Pick: Identifiable {
+        let id = UUID()
+        let kicker: String, title: String, subtitle: String
+        let colors: [Color], symbol: String
+        let tracks: [Track]
+    }
+
+    private var picks: [Pick] {
+        var out: [Pick] = []
+        if !mostPlayed.isEmpty {
+            out.append(Pick(kicker: "MADE FOR YOU", title: "Heavy Rotation",
+                            subtitle: mostPlayed.prefix(4).map(\.artist).filter { !$0.isEmpty }.joined(separator: ", "),
+                            colors: [Color(red: 0.95, green: 0.55, blue: 0.15), Color(red: 0.85, green: 0.25, blue: 0.30)],
+                            symbol: "flame.fill", tracks: Array(library.mostPlayed.prefix(40))))
+        }
+        let favs = library.tracks.filter { $0.favorite == true }
+        if !favs.isEmpty {
+            out.append(Pick(kicker: "MADE FOR YOU", title: "On Repeat",
+                            subtitle: "The songs you love most",
+                            colors: [Color(red: 0.55, green: 0.30, blue: 0.85), Color(red: 0.25, green: 0.35, blue: 0.80)],
+                            symbol: "heart.fill", tracks: favs))
+        }
+        if let recentAlbum = recents.first.flatMap({ e in library.albums.first(where: { $0.tracks.contains(where: { $0.path == e.path }) }) }) {
+            out.append(Pick(kicker: "LISTEN AGAIN", title: recentAlbum.name,
+                            subtitle: recentAlbum.artist,
+                            colors: [Color(red: 0.18, green: 0.55, blue: 0.45), Color(red: 0.10, green: 0.30, blue: 0.40)],
+                            symbol: "memories", tracks: recentAlbum.tracks))
+        }
+        return out
+    }
+
+    @ViewBuilder private var topPicksSection: some View {
+        let items = picks
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                header("Top Picks for You")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(items) { pick in
+                            Button { if !pick.tracks.isEmpty { player.play(queue: pick.tracks, at: 0) } } label: {
+                                pickCard(pick)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 28)
+                }
+            }
+        }
+    }
+
+    private func pickCard(_ pick: Pick) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(colors: pick.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+            Image(systemName: pick.symbol)
+                .font(.system(size: 120, weight: .bold))
+                .foregroundStyle(.white.opacity(0.16))
+                .offset(x: 120, y: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pick.kicker).font(.caption2.weight(.bold)).tracking(1.2).foregroundStyle(.white.opacity(0.85))
+                Text(pick.title).font(.title2.weight(.heavy)).foregroundStyle(.white).lineLimit(2)
+                if !pick.subtitle.isEmpty {
+                    Text(pick.subtitle).font(.caption).foregroundStyle(.white.opacity(0.85)).lineLimit(2)
+                }
+                Spacer()
+                HStack(spacing: 6) {
+                    Image(systemName: "play.circle.fill")
+                    Text("Play").font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+            }
+            .padding(18)
+        }
+        .frame(width: 300, height: 170)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.10)) }
+        .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
     }
 
     // MARK: Recommendations
@@ -965,6 +1065,521 @@ struct ForYouView: View {
         } else if let vid = e.videoID {
             youtube.play(YTResult(id: vid, title: e.title, artist: e.artist, duration: 0,
                                   cover: e.artworkURL.flatMap { URL(string: $0) }))
+        }
+    }
+}
+
+// MARK: - New (new releases from YouTube Music)
+
+struct NewView: View {
+    @ObservedObject private var youtube = YouTubeService.shared
+
+    private let columns = [GridItem(.adaptive(minimum: 132), spacing: 16, alignment: .top)]
+
+    var body: some View {
+        Group {
+            if youtube.newReleasesLoading && youtube.newReleases.isEmpty {
+                VStack(spacing: 12) {
+                    ProgressView().controlSize(.large)
+                    Text("Loading new releases…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if youtube.newReleases.isEmpty {
+                unavailable
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 26) {
+                        featured
+                        if !youtube.artistNew.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("From artists you listen to").font(.title3.weight(.bold)).padding(.horizontal, 28)
+                                LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                                    ForEach(youtube.artistNew) { YTAlbumCard(album: $0) }
+                                }
+                                .padding(.horizontal, 24)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("New Releases").font(.title3.weight(.bold)).padding(.horizontal, 28)
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                                ForEach(youtube.newReleases) { YTAlbumCard(album: $0) }
+                            }
+                            .padding(.horizontal, 24)
+                        }
+                    }
+                    .padding(.top, 16)
+                    .padding(.bottom, 96)
+                }
+            }
+        }
+        .task(id: youtube.ready) { youtube.loadNewReleases(); youtube.loadArtistNew() }
+    }
+
+    // Two big featured cards from the freshest releases.
+    @ViewBuilder private var featured: some View {
+        let top = Array(youtube.newReleases.prefix(2))
+        if !top.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("New").font(.largeTitle.weight(.bold)).padding(.horizontal, 28)
+                HStack(spacing: 16) {
+                    ForEach(top) { album in
+                        Button {
+                            youtube.openAlbum(id: album.id, title: album.title)
+                            withAnimation(.smooth(duration: 0.3)) { UIState.shared.tab = .youtube }
+                        } label: { featureCard(album) }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 28)
+            }
+        }
+    }
+
+    private func featureCard(_ album: YTAlbum) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            Color.clear
+                .frame(maxWidth: .infinity).frame(height: 230)
+                .overlay { RemoteArtwork(url: album.thumb, fallback: album.thumb) { Color(white: 0.15) } }
+                .clipped()
+            LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("NEW RELEASE").font(.caption2.weight(.bold)).tracking(1.2).foregroundStyle(.white.opacity(0.85))
+                Text(album.title).font(.title3.weight(.heavy)).foregroundStyle(.white).lineLimit(2)
+                if !album.artist.isEmpty {
+                    Text(album.artist).font(.caption).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                }
+            }
+            .padding(18)
+        }
+        .frame(height: 230)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.10)) }
+    }
+
+    private var unavailable: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "square.grid.2x2").font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
+            Text("New releases unavailable").font(.headline)
+            Text(youtube.ready ? "Couldn’t reach YouTube Music right now."
+                               : "Enable YouTube Music in Settings to see new releases.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).padding(40)
+    }
+}
+
+// MARK: - Profile (identity · stats · collections · preferences · achievements)
+
+/// Round avatar with a gradient-initial fallback.
+struct SidebarAvatar: View {
+    let image: NSImage?
+    var size: CGFloat = 28
+    var name: String = ProfileStore.shared.profile.displayName
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+            } else {
+                LinearGradient(colors: [Color(red: 0.45, green: 0.4, blue: 0.95), Color(red: 0.85, green: 0.3, blue: 0.55)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .overlay(Text(initial).font(.system(size: size * 0.42, weight: .bold)).foregroundStyle(.white))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().strokeBorder(.white.opacity(0.15)))
+    }
+    private var initial: String { String(name.first.map(String.init)?.uppercased() ?? "U") }
+}
+
+struct ProfileView: View {
+    @ObservedObject private var store = ProfileStore.shared
+    @ObservedObject private var library = Library.shared
+    @ObservedObject private var genres = GenreService.shared
+    @ObservedObject private var player = Player.shared
+    @ObservedObject private var youtube = YouTubeService.shared
+
+    @State private var range: StatRange = .month
+    @State private var editing = false
+    @State private var draftName = ""
+    @State private var draftBio = ""
+
+    private var engine: StatsEngine {
+        var dur: [String: Double] = [:]
+        for t in library.tracks where t.duration > 0 { dur[t.path] = t.duration }
+        return StatsEngine(history: library.history, durations: dur)
+    }
+    private var savedArtists: [String] {
+        Array(Set(library.tracks.map(\.artist).filter { !$0.isEmpty })).sorted()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                identityHeader
+                statsSection
+                collectionsSection
+                preferencesSection
+                achievementsSection
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 96)
+        }
+        .task(id: library.history.count) {
+            genres.ensure(artists: engine.topArtists(in: .all, limit: 20).map(\.name))
+        }
+    }
+
+    private func sectionTitle(_ s: String) -> some View {
+        Text(s).font(.title3.weight(.bold)).padding(.horizontal, 28)
+    }
+
+    // MARK: Identity
+
+    private var identityHeader: some View {
+        let p = store.profile
+        return HStack(alignment: .top, spacing: 20) {
+            Button { store.pickAvatar() } label: {
+                ZStack(alignment: .bottomTrailing) {
+                    SidebarAvatar(image: store.avatar, size: 96, name: p.displayName)
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                        .padding(6).background(.black.opacity(0.6), in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.2)))
+                }
+            }
+            .buttonStyle(.plain).help("Change photo")
+
+            VStack(alignment: .leading, spacing: 8) {
+                if editing {
+                    TextField("Display name", text: $draftName)
+                        .textFieldStyle(.plain).font(.system(size: 30, weight: .heavy))
+                    TextField("Add a bio — e.g. “Jazz lover · vinyl collector”", text: $draftBio, axis: .vertical)
+                        .textFieldStyle(.plain).font(.callout).foregroundStyle(.secondary).lineLimit(1...3)
+                } else {
+                    Text(p.displayName).font(.system(size: 34, weight: .heavy)).lineLimit(1)
+                    if p.bio.isEmpty {
+                        Text("No bio yet").font(.callout).foregroundStyle(.tertiary)
+                    } else {
+                        Text(p.bio).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+                    }
+                }
+                HStack(spacing: 14) {
+                    Label("Joined \(p.joinDate.formatted(.dateTime.month(.abbreviated).year()))",
+                          systemImage: "calendar").font(.caption).foregroundStyle(.tertiary)
+                    Label(p.isPrivate ? "Private" : "Public",
+                          systemImage: p.isPrivate ? "lock.fill" : "globe").font(.caption).foregroundStyle(.tertiary)
+                }
+                .padding(.top, 2)
+
+                HStack(spacing: 10) {
+                    if editing {
+                        Button("Save") {
+                            store.profile.displayName = draftName.trimmingCharacters(in: .whitespaces).isEmpty ? store.profile.displayName : draftName
+                            store.profile.bio = draftBio
+                            editing = false
+                        }.buttonStyle(.glassProminent)
+                        Button("Cancel") { editing = false }.buttonStyle(.glass)
+                    } else {
+                        Button { draftName = p.displayName; draftBio = p.bio; editing = true } label: {
+                            Label("Edit Profile", systemImage: "pencil")
+                        }.buttonStyle(.glass)
+                        Toggle(isOn: Binding(get: { store.profile.isPrivate },
+                                             set: { store.profile.isPrivate = $0 })) {
+                            Text("Private").font(.caption.weight(.semibold))
+                        }
+                        .toggleStyle(.switch).controlSize(.mini)
+                    }
+                }
+                .padding(.top, 6)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 8)
+    }
+
+    // MARK: Stats
+
+    private var statsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Listening Stats").font(.title3.weight(.bold))
+                Spacer()
+                Picker("", selection: $range) {
+                    ForEach(StatRange.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented).frame(width: 280).labelsHidden()
+            }
+            .padding(.horizontal, 28)
+
+            // headline numbers
+            HStack(spacing: 14) {
+                statTile(value: timeString(engine.totalSeconds(in: range)), label: "Listening time", symbol: "clock.fill",
+                         colors: [Color(red: 0.2, green: 0.5, blue: 0.95), Color(red: 0.35, green: 0.3, blue: 0.85)])
+                statTile(value: "\(engine.totalPlays(in: range))", label: "Tracks played", symbol: "music.note",
+                         colors: [Color(red: 0.95, green: 0.45, blue: 0.25), Color(red: 0.9, green: 0.25, blue: 0.45)])
+                statTile(value: "\(engine.streak())", label: "Day streak", symbol: "flame.fill",
+                         colors: [Color(red: 0.95, green: 0.6, blue: 0.15), Color(red: 0.9, green: 0.35, blue: 0.2)])
+            }
+            .padding(.horizontal, 28)
+
+            HStack(alignment: .top, spacing: 22) {
+                topArtistsColumn
+                topTracksColumn
+            }
+            .padding(.horizontal, 28)
+
+            topGenresView
+        }
+    }
+
+    private func statTile(value: String, label: String, symbol: String, colors: [Color]) -> some View {
+        ZStack(alignment: .topLeading) {
+            LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+            Image(systemName: symbol).font(.system(size: 64, weight: .bold))
+                .foregroundStyle(.white.opacity(0.15)).offset(x: 90, y: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Image(systemName: symbol).font(.callout).foregroundStyle(.white.opacity(0.9))
+                Spacer()
+                Text(value).font(.system(size: 26, weight: .heavy)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                Text(label).font(.caption).foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(14)
+        }
+        .frame(height: 104).frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var topArtistsColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Top Artists").font(.headline)
+            let items = engine.topArtists(in: range, limit: 5)
+            if items.isEmpty { Text("No plays yet").font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(items.enumerated()), id: \.offset) { i, a in
+                HStack(spacing: 10) {
+                    Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 16)
+                    ArtistAvatar(localArt: artistArt(a.name), remote: youtube.artistImage(for: a.name))
+                        .frame(width: 34, height: 34)
+                    Text(a.name).font(.callout).lineLimit(1)
+                    Spacer()
+                    Text("\(a.plays)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var topTracksColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Top Tracks").font(.headline)
+            let items = engine.topTracks(in: range, limit: 5)
+            if items.isEmpty { Text("No plays yet").font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, t in
+                HStack(spacing: 10) {
+                    Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 16)
+                    ArtworkSquare(image: trackArt(t.id), corner: 6,
+                                  remote: t.videoID.map { URL(string: "https://i.ytimg.com/vi/\($0)/mqdefault.jpg")! } ?? t.artworkURL.flatMap { URL(string: $0) },
+                                  remoteFallback: t.videoID.map { URL(string: "https://i.ytimg.com/vi/\($0)/hqdefault.jpg")! })
+                        .frame(width: 34, height: 34)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(t.title).font(.callout).lineLimit(1)
+                        Text(t.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Text("\(t.plays)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var topGenresView: some View {
+        let bd = genres.breakdown(weightedBy: engine.topArtists(in: range, limit: 20))
+        if !bd.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Top Genres").font(.headline)
+                ForEach(Array(bd.prefix(5)), id: \.genre) { g in
+                    HStack(spacing: 10) {
+                        Text(g.genre).font(.caption.weight(.medium)).frame(width: 90, alignment: .leading)
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(.white.opacity(0.08))
+                                Capsule().fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.6)],
+                                                              startPoint: .leading, endPoint: .trailing))
+                                    .frame(width: max(6, geo.size.width * g.fraction))
+                            }
+                        }
+                        .frame(height: 10)
+                        Text("\(Int((g.fraction * 100).rounded()))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                    }
+                }
+            }
+            .padding(.horizontal, 28)
+        }
+    }
+
+    // MARK: Collections
+
+    private var collectionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Your Library")
+            HStack(spacing: 14) {
+                collectionCard("Liked Songs", count: library.favorites.count, symbol: "heart.fill",
+                               colors: [Color(red: 0.9, green: 0.2, blue: 0.4), Color(red: 0.7, green: 0.15, blue: 0.5)]) { ui(.playlists) }
+                collectionCard("Playlists", count: library.playlists.count, symbol: "music.note.list",
+                               colors: [Color(red: 0.25, green: 0.55, blue: 0.5), Color(red: 0.15, green: 0.35, blue: 0.45)]) { ui(.playlists) }
+                collectionCard("Albums", count: library.albums.count, symbol: "square.stack.fill",
+                               colors: [Color(red: 0.45, green: 0.35, blue: 0.85), Color(red: 0.3, green: 0.3, blue: 0.7)]) { ui(.albums) }
+                collectionCard("Artists", count: savedArtists.count, symbol: "music.mic",
+                               colors: [Color(red: 0.55, green: 0.45, blue: 0.2), Color(red: 0.4, green: 0.3, blue: 0.2)]) { ui(.artists) }
+            }
+            .padding(.horizontal, 28)
+        }
+    }
+
+    private func collectionCard(_ title: String, count: Int, symbol: String, colors: [Color], action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: symbol).font(.system(size: 50, weight: .bold)).foregroundStyle(.white.opacity(0.16)).offset(x: 60, y: 12)
+                VStack(alignment: .leading, spacing: 2) {
+                    Image(systemName: symbol).font(.callout).foregroundStyle(.white)
+                    Spacer()
+                    Text("\(count)").font(.system(size: 24, weight: .heavy)).foregroundStyle(.white)
+                    Text(title).font(.caption.weight(.medium)).foregroundStyle(.white.opacity(0.9)).lineLimit(1)
+                }.padding(12)
+            }
+            .frame(height: 96).frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Preferences
+
+    private var preferencesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Preferences")
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Preferred genres — used to tune your Home recommendations")
+                    .font(.caption).foregroundStyle(.secondary)
+                FlowChips(items: GenreService.allGenres,
+                          selected: store.profile.preferredGenres) { g in
+                    if let i = store.profile.preferredGenres.firstIndex(of: g) {
+                        store.profile.preferredGenres.remove(at: i)
+                    } else {
+                        store.profile.preferredGenres.append(g)
+                    }
+                }
+                Divider().opacity(0.15)
+                Toggle(isOn: Binding(get: { store.profile.explicitFilter },
+                                     set: { store.profile.explicitFilter = $0 })) {
+                    Label("Filter explicit content", systemImage: "e.square.fill")
+                }
+                HStack {
+                    Label("Audio quality & theme live in Settings", systemImage: "slider.horizontal.3")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Open Settings") { NotificationCenter.default.post(name: .openSettings, object: nil) }
+                        .buttonStyle(.glass).controlSize(.small)
+                }
+            }
+            .padding(18)
+            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 28)
+        }
+    }
+
+    // MARK: Achievements
+
+    private var achievementsSection: some View {
+        let plays = engine.totalPlays(in: .all)
+        let minutes = Int(engine.totalSeconds(in: .all) / 60)
+        let lvl = Gamification.level(plays: plays, minutes: minutes)
+        let badges = Gamification.badges(plays: plays, genres: genres.distinctGenreCount,
+                                         streak: engine.streak(), nightOwl: engine.nightOwlPlays(),
+                                         minutes: minutes, favorites: library.favorites.count)
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Achievements")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Level \(lvl.level)").font(.title3.weight(.heavy))
+                    Spacer()
+                    Text("\(lvl.intoLevel) / \(lvl.span) XP").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.08))
+                        Capsule().fill(LinearGradient(colors: [Color(red: 0.95, green: 0.6, blue: 0.15), Color(red: 0.9, green: 0.3, blue: 0.5)],
+                                                      startPoint: .leading, endPoint: .trailing))
+                            .frame(width: max(8, geo.size.width * lvl.fraction))
+                    }
+                }.frame(height: 12)
+            }
+            .padding(18)
+            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 28)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 14) {
+                ForEach(badges) { badge in
+                    HStack(spacing: 10) {
+                        Image(systemName: badge.symbol)
+                            .font(.title3)
+                            .foregroundStyle(badge.earned ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                            .frame(width: 38, height: 38)
+                            .background(badge.earned ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.white.opacity(0.05)), in: Circle())
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(badge.title).font(.caption.weight(.semibold)).lineLimit(1)
+                            Text(badge.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+                    .opacity(badge.earned ? 1 : 0.5)
+                }
+            }
+            .padding(.horizontal, 28)
+        }
+    }
+
+    // MARK: Helpers
+
+    private func ui(_ tab: Tab) { withAnimation(.smooth(duration: 0.25)) { UIState.shared.tab = tab } }
+    private func trackArt(_ path: String) -> NSImage? { library.artwork(for: library.tracks.first { $0.path == path }) }
+    private func artistArt(_ name: String) -> NSImage? {
+        library.artwork(for: library.tracks.first { $0.artist == name && $0.artworkFile != nil })
+    }
+    private func timeString(_ seconds: Double) -> String {
+        let m = Int(seconds / 60)
+        if m < 60 { return "\(m)m" }
+        return "\(m / 60)h \(m % 60)m"
+    }
+}
+
+/// Wrapping selectable chips (for preferred genres).
+struct FlowChips: View {
+    let items: [String]
+    let selected: [String]
+    let toggle: (String) -> Void
+
+    private let columns = [GridItem(.adaptive(minimum: 92), spacing: 8, alignment: .leading)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+            ForEach(items, id: \.self) { item in
+                let on = selected.contains(item)
+                Button { toggle(item) } label: {
+                    Text(item).font(.caption.weight(.medium))
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .frame(maxWidth: .infinity)
+                        .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.06)),
+                                    in: Capsule())
+                        .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }
@@ -2481,8 +3096,9 @@ struct SearchResultsView: View {
     var body: some View {
         Group {
             switch youtube.route {
-            case .artist(_, let name):
-                VStack(spacing: 0) { ytDetailBar(name, kind: "Artist"); YTArtistView() }
+            case .artist:
+                // YTArtistView has its own hero with an overlaid back button.
+                YTArtistView()
             case .album(_, let title):
                 VStack(spacing: 0) { ytDetailBar(title, kind: "Album"); YTAlbumView() }
             case .search:
@@ -2853,9 +3469,22 @@ struct YTArtistView: View {
                 YTLoading()
             } else if let detail = youtube.artistDetail {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if detail.albums.isEmpty && detail.singles.isEmpty {
-                            YTNote(text: "No releases found for this artist.", icon: "opticaldisc")
+                    VStack(alignment: .leading, spacing: 22) {
+                        hero(detail)
+                        if !detail.bio.isEmpty {
+                            ArtistBio(text: detail.bio).padding(.horizontal, 28)
+                        }
+                        if !detail.topSongs.isEmpty {
+                            YTSectionHeader(title: "Top Songs", count: detail.topSongs.count)
+                            LazyVStack(spacing: 3) {
+                                ForEach(detail.topSongs.prefix(8)) { song in
+                                    YTResultRow(result: song,
+                                                onPlay: { youtube.play(song) },
+                                                onDownload: { youtube.download(song) },
+                                                onAdd: { youtube.addToLibrary(song) })
+                                }
+                            }
+                            .padding(.horizontal, 20)
                         }
                         if !detail.albums.isEmpty {
                             YTSectionHeader(title: "Albums", count: detail.albums.count)
@@ -2872,12 +3501,66 @@ struct YTArtistView: View {
                             .padding(.horizontal, 24)
                         }
                     }
-                    .padding(.top, 16)
                     .padding(.bottom, 96)
                 }
             } else {
                 YTNote(text: "Couldn’t load this artist.", icon: "exclamationmark.triangle")
             }
+        }
+    }
+
+    private func hero(_ detail: YTArtistDetail) -> some View {
+        let height: CGFloat = 300
+        return ZStack(alignment: .bottomLeading) {
+            Color.clear
+                .frame(maxWidth: .infinity).frame(height: height)
+                .overlay {
+                    RemoteArtwork(url: ArtistsView.widen(detail.thumb), fallback: detail.thumb) {
+                        LinearGradient(colors: [Color(white: 0.22), Color(white: 0.10)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                }
+                .clipped()
+                .overlay(
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(0.35), location: 0.0),
+                        .init(color: .clear, location: 0.4),
+                        .init(color: .clear, location: 0.5),
+                        .init(color: .black.opacity(0.6), location: 1.0),
+                    ], startPoint: .top, endPoint: .bottom)
+                )
+                .mask(
+                    LinearGradient(stops: [
+                        .init(color: .white, location: 0.0),
+                        .init(color: .white, location: 0.72),
+                        .init(color: .white.opacity(0.0), location: 1.0),
+                    ], startPoint: .top, endPoint: .bottom)
+                )
+            HStack(alignment: .bottom, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ARTIST").font(.caption2.weight(.bold)).tracking(1.5)
+                        .foregroundStyle(.white.opacity(0.7))
+                    Text(detail.name).font(.system(size: 42, weight: .heavy))
+                        .foregroundStyle(.white).lineLimit(2).minimumScaleFactor(0.6)
+                        .shadow(color: .black.opacity(0.5), radius: 10, y: 2)
+                    if !detail.subscribers.isEmpty {
+                        Text("\(detail.subscribers) subscribers")
+                            .font(.subheadline).foregroundStyle(.white.opacity(0.85))
+                            .shadow(color: .black.opacity(0.4), radius: 6, y: 1)
+                    }
+                }
+                Spacer()
+                Button { if let first = detail.topSongs.first { youtube.play(first) } } label: {
+                    Label("Play", systemImage: "play.fill")
+                }
+                .buttonStyle(.glassProminent).controlSize(.large)
+                .disabled(detail.topSongs.isEmpty || !youtube.online)
+            }
+            .padding(24)
+        }
+        .frame(height: height).frame(maxWidth: .infinity)
+        .overlay(alignment: .topLeading) {
+            BackButton { youtube.back() }.padding(16)
         }
     }
 }
@@ -3155,7 +3838,7 @@ struct YTResultRow: View {
             Rectangle().fill(.white.opacity(0.06))
                 .overlay(Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary))
         }
-        .frame(width: 58, height: 42)
+        .frame(width: 46, height: 46)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.08)) }
     }
@@ -3871,46 +4554,32 @@ struct PlaylistDetailView: View {
         _name = State(initialValue: playlist.name)
     }
 
+    @FocusState private var nameFocused: Bool
+    @State private var showAddSongs = false
+
     var body: some View {
-        let tracks = library.tracks(for: playlist)
+        let live = library.playlists.first(where: { $0.id == playlist.id }) ?? playlist
+        let tracks = library.tracks(for: live)
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Button { back() } label: {
-                    Label("Playlists", systemImage: "chevron.left")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.glass)
-
-                TextField("Playlist name", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(.title2.weight(.semibold))
-                    .onSubmit { library.renamePlaylist(playlist.id, to: name) }
-
-                HStack(spacing: 14) {
-                    Text("\(tracks.count) songs · \(Int(tracks.reduce(0) { $0 + $1.duration } / 60)) min")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Button {
-                        if !tracks.isEmpty { player.play(queue: tracks, at: 0) }
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.glassProminent)
-                    .disabled(tracks.isEmpty)
-                }
-            }
-            .padding(.horizontal, 28)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            BackButton(action: back)
+                .padding(.horizontal, 28).padding(.top, 16)
+            header(tracks)
+                .padding(.horizontal, 28).padding(.top, 10).padding(.bottom, 14)
 
             if tracks.isEmpty {
                 Spacer()
                 HStack {
                     Spacer()
-                    Text("Right-click any song or album and choose “Add to Playlist”.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    VStack(spacing: 12) {
+                        Text("This playlist is empty")
+                            .font(.headline)
+                        Button { showAddSongs = true } label: {
+                            Label("Add Songs", systemImage: "plus")
+                        }
+                        .buttonStyle(.glassProminent)
+                    }
+                    .padding(.vertical, 44).padding(.horizontal, 56)
+                    .appGlass(in: .rect(cornerRadius: 26))
                     Spacer()
                 }
                 Spacer()
@@ -3923,12 +4592,17 @@ struct PlaylistDetailView: View {
                             } menu: {
                                 Button("Play Next") { player.playNext([track]) }
                                 Button("Add to Queue") { player.addToQueue([track]) }
+                                Divider()
+                                Button("Move Up") { library.movePlaylistTrack(live.id, trackID: track.id, by: -1) }
+                                    .disabled(index == 0)
+                                Button("Move Down") { library.movePlaylistTrack(live.id, trackID: track.id, by: 1) }
+                                    .disabled(index == tracks.count - 1)
+                                Button("Remove from Playlist", role: .destructive) {
+                                    library.removeFromPlaylist(live.id, trackID: track.id)
+                                }
+                                Divider()
                                 Button("Get Info…") { UIState.shared.infoTrack = track }
                                 AddToPlaylistMenu(trackIDs: [track.id])
-                                Divider()
-                                Button("Remove from Playlist") {
-                                    library.removeFromPlaylist(playlist.id, trackID: track.id)
-                                }
                             }
                         }
                     }
@@ -3938,6 +4612,182 @@ struct PlaylistDetailView: View {
             }
         }
         .onDisappear { library.renamePlaylist(playlist.id, to: name) }
+        .sheet(isPresented: $showAddSongs) { AddSongsSheet(playlistID: playlist.id) }
+    }
+
+    private func header(_ tracks: [Track]) -> some View {
+        HStack(alignment: .bottom, spacing: 18) {
+            PlaylistCover(tracks: tracks)
+                .frame(width: 132, height: 132)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField("Playlist name", text: $name)
+                        .textFieldStyle(.plain)
+                        .font(.title2.weight(.bold))
+                        .focused($nameFocused)
+                        .frame(maxWidth: 320)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(nameFocused ? AnyShapeStyle(.white.opacity(0.08)) : AnyShapeStyle(.clear),
+                                    in: RoundedRectangle(cornerRadius: 7))
+                        .onSubmit { library.renamePlaylist(playlist.id, to: name); nameFocused = false }
+                    Button { nameFocused = true } label: {
+                        Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).help("Rename playlist")
+                }
+                Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s") · \(Int(tracks.reduce(0) { $0 + $1.duration } / 60)) min")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Button { if !tracks.isEmpty { player.play(queue: tracks, at: 0) } } label: {
+                        Label("Play", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.glassProminent).disabled(tracks.isEmpty)
+                    Button { if !tracks.isEmpty { player.play(queue: tracks.shuffled(), at: 0) } } label: {
+                        Label("Shuffle", systemImage: "shuffle")
+                    }
+                    .buttonStyle(.glass).disabled(tracks.isEmpty)
+                    Button { showAddSongs = true } label: {
+                        Label("Add Songs", systemImage: "plus")
+                    }
+                    .buttonStyle(.glass)
+                    Menu {
+                        Button("Rename") { nameFocused = true }
+                        Button("Delete Playlist", role: .destructive) {
+                            library.deletePlaylist(playlist.id); back()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 30, height: 30).contentShape(Circle())
+                    }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).menuIndicator(.hidden)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// Sheet for adding songs to a playlist — from the library or from YouTube
+/// search (YouTube hits are imported as streaming tracks, then added).
+struct AddSongsSheet: View {
+    let playlistID: UUID
+    @ObservedObject private var library = Library.shared
+    @ObservedObject private var youtube = YouTubeService.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var ytResults: [YTResult] = []
+    @State private var ytSearching = false
+    @State private var searchTask: Task<Void, Never>?
+
+    /// Track paths already in the playlist (for the added ✓ state).
+    private var playlistPaths: Set<String> {
+        let ids = Set(library.playlists.first(where: { $0.id == playlistID })?.trackIDs ?? [])
+        return Set(library.tracks.filter { ids.contains($0.id) }.map(\.path))
+    }
+    private var libraryResults: [Track] {
+        let all = library.tracks.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        guard !query.isEmpty else { return all }
+        return all.filter {
+            $0.title.localizedCaseInsensitiveContains(query) || $0.artist.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        let paths = playlistPaths
+        VStack(spacing: 0) {
+            HStack {
+                Text("Add Songs").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.buttonStyle(.glassProminent)
+            }
+            .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 10)
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+                TextField("Search your library and YouTube", text: $query).textFieldStyle(.plain)
+                if ytSearching { ProgressView().controlSize(.small) }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .appGlass(in: .capsule)
+            .padding(.horizontal, 16).padding(.bottom, 8)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    if !libraryResults.isEmpty {
+                        sectionLabel("Your Library")
+                        ForEach(libraryResults) { track in
+                            row(title: track.title, artist: track.artist,
+                                image: library.artwork(for: track),
+                                remote: track.remoteArtworkURL, fallback: track.remoteArtworkFallbackURL,
+                                added: paths.contains(track.path)) {
+                                library.add(trackIDs: [track.id], to: playlistID)
+                            }
+                        }
+                    }
+                    if !query.isEmpty {
+                        sectionLabel("From YouTube")
+                        if ytResults.isEmpty && !ytSearching {
+                            Text(youtube.ready ? "No YouTube results." : "YouTube isn’t set up.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                        }
+                        ForEach(ytResults) { result in
+                            row(title: result.title, artist: result.artist,
+                                image: nil, remote: result.thumbnailURL, fallback: nil,
+                                added: paths.contains("ytmusic://\(result.id)")) {
+                                youtube.addToPlaylist(result, playlist: playlistID)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 12).padding(.bottom, 12)
+            }
+        }
+        .frame(width: 460, height: 560)
+        .preferredColorScheme(.dark)
+        .onChange(of: query) { _, q in
+            searchTask?.cancel()
+            let trimmed = q.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { ytResults = []; ytSearching = false; return }
+            ytSearching = true
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                let r = await youtube.searchSongs(trimmed)
+                guard !Task.isCancelled else { return }
+                ytResults = r
+                ytSearching = false
+            }
+        }
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .semibold)).tracking(0.8)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 2)
+    }
+
+    private func row(title: String, artist: String, image: NSImage?, remote: URL?, fallback: URL?,
+                     added: Bool, add: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            ArtworkSquare(image: image, corner: 6, remote: remote, remoteFallback: fallback)
+                .frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout).lineLimit(1)
+                Text(artist.isEmpty ? "Unknown Artist" : artist)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button(action: add) {
+                Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
+                    .font(.title3).foregroundStyle(added ? .green : .secondary)
+            }
+            .buttonStyle(.plain).disabled(added)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -3949,12 +4799,9 @@ struct FavoritesDetailView: View {
     var body: some View {
         let tracks = library.favorites
         VStack(alignment: .leading, spacing: 0) {
+            BackButton(action: back)
+                .padding(.horizontal, 28).padding(.top, 16)
             VStack(alignment: .leading, spacing: 8) {
-                Button { back() } label: {
-                    Label("Playlists", systemImage: "chevron.left")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.glass)
                 Label("Favourites", systemImage: "heart.fill")
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.primary, .pink)
@@ -3973,7 +4820,7 @@ struct FavoritesDetailView: View {
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.top, 18)
+            .padding(.top, 10)
             .padding(.bottom, 14)
 
             ScrollView {

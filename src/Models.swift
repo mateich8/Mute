@@ -80,6 +80,7 @@ struct PlayEvent: Codable, Identifiable {
     var path: String          // "ytmusic://<id>" or a file path
     var artworkURL: String?
     var date: Date
+    var duration: Double?     // seconds, for total-listening-time stats (optional → old events decode)
     var videoID: String? { path.hasPrefix("ytmusic://") ? String(path.dropFirst(10)) : nil }
 }
 
@@ -329,7 +330,8 @@ final class Library: ObservableObject {
         // Don't log an immediate repeat of the same track (e.g. replay-on-seek).
         if history.last?.path != track.path || Date().timeIntervalSince(history.last?.date ?? .distantPast) > 1 {
             history.append(PlayEvent(title: track.title, artist: track.artist, path: track.path,
-                                     artworkURL: track.artworkURL, date: Date()))
+                                     artworkURL: track.artworkURL, date: Date(),
+                                     duration: track.duration > 0 ? track.duration : nil))
             if history.count > 600 { history.removeFirst(history.count - 600) }
         }
         if let i = tracks.firstIndex(where: { $0.id == track.id }) {
@@ -650,6 +652,16 @@ final class Library: ObservableObject {
     func removeFromPlaylist(_ playlistID: UUID, trackID: UUID) {
         guard let i = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
         playlists[i].trackIDs.removeAll { $0 == trackID }
+        save()
+    }
+
+    /// Moves a track within a playlist by `offset` (−1 up, +1 down).
+    func movePlaylistTrack(_ playlistID: UUID, trackID: UUID, by offset: Int) {
+        guard let p = playlists.firstIndex(where: { $0.id == playlistID }),
+              let i = playlists[p].trackIDs.firstIndex(of: trackID) else { return }
+        let j = i + offset
+        guard playlists[p].trackIDs.indices.contains(j) else { return }
+        playlists[p].trackIDs.swapAt(i, j)
         save()
     }
 

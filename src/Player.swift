@@ -45,7 +45,12 @@ final class Player: NSObject, ObservableObject {
     private func prefetchNextStream() {
         guard let i = currentIndex, i + 1 < tracks.count,
               let vid = tracks[i + 1].youtubeVideoID else { return }
-        YouTubeService.shared.prefetchStreamURL(videoId: vid)
+        let next = tracks[i + 1]
+        Task {
+            let id = await YouTubeService.shared.officialAudioID(
+                for: vid, title: next.title, artist: next.artist)
+            YouTubeService.shared.prefetchStreamURL(videoId: id)
+        }
     }
     /// When on, related tracks are appended endlessly so playback never ends.
     @Published private(set) var autoplayRadio = false
@@ -289,7 +294,7 @@ final class Player: NSObject, ObservableObject {
                 currentIndex = i
                 Library.shared.recordPlay(track)
                 NowPlayingBridge.shared.update()
-                resolveAndStream(videoID: String(track.path.dropFirst(10)), forIndex: i)
+                resolveAndStream(track: track, forIndex: i)
                 return
             }
             // Transient addon search hits store their stream URL as the path.
@@ -422,7 +427,7 @@ final class Player: NSObject, ObservableObject {
 
     /// Resolves a YouTube videoId to a playable URL off the main thread, then
     /// starts streaming it — provided the user hasn't moved on in the meantime.
-    private func resolveAndStream(videoID: String, forIndex i: Int) {
+    private func resolveAndStream(track: Track, forIndex i: Int) {
         generation += 1
         let gen = generation
         nodeA.stop()
@@ -434,7 +439,12 @@ final class Player: NSObject, ObservableObject {
         isPlaying = true
         elapsed = 0
         stopTicker()
+        let original = String(track.path.dropFirst(10))
         Task {
+            // Map music-video ids to the official-audio (ATV) track first.
+            let videoID = await YouTubeService.shared.officialAudioID(
+                for: original, title: track.title, artist: track.artist)
+            guard gen == generation, currentIndex == i else { return }  // superseded
             let url = await YouTubeService.shared.resolveStreamURL(videoId: videoID)
             guard gen == generation, currentIndex == i else { return }  // superseded
             if let url {
