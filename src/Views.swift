@@ -3,7 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum Tab: String, CaseIterable, Identifiable {
-    case home, new, nowPlaying, songs, albums, artists, playlists, youtube, profile
+    case home, new, nowPlaying, songs, albums, artists, playlists, youtube, qobuz, profile
     var id: String { rawValue }
 
     var icon: String {
@@ -16,6 +16,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .artists: return "music.mic"
         case .playlists: return "music.note.list"
         case .youtube: return "play.rectangle.fill"
+        case .qobuz: return "hifispeaker.fill"
         case .profile: return "person.crop.circle"
         }
     }
@@ -30,6 +31,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .artists: return "Artists"
         case .playlists: return "Playlists"
         case .youtube: return "YouTube"
+        case .qobuz: return "Qobuz"
         case .profile: return "Profile"
         }
     }
@@ -56,6 +58,9 @@ final class UIState: ObservableObject {
     @Published var searchText = ""
     @Published var debouncedSearch = ""
     @Published var searchScope: SearchScope = .all
+
+    /// Clears the global search (used when navigating into a tab that has its own).
+    func clearSearch() { searchText = ""; debouncedSearch = ""; searchVisible = false }
     /// Bumped to ask the search field to grab focus.
     @Published var searchFocusToken = 0
     // Zen mode + gesture-driven artwork zoom
@@ -95,6 +100,9 @@ let kSidebarWidth: CGFloat = 236
 /// (panelRadius ≈ windowRadius − inset on macOS Tahoe).
 let kPanelInset: CGFloat = 8
 let kPanelRadius: CGFloat = 16
+/// Height of the native titlebar strip kept clear above the floating cards so the
+/// macOS traffic lights live in the standard titlebar area over the backdrop.
+let kTitlebarStrip: CGFloat = 24
 
 struct ContentView: View {
     @ObservedObject private var player = Player.shared
@@ -112,9 +120,10 @@ struct ContentView: View {
                 Sidebar(showSettings: $showSettings, showImporter: $showImporter)
                 MainArea(showImporter: $showImporter)
             }
-            // Begin the panels just below the traffic lights (which float over the
-            // backdrop), so the window buttons have clean room.
-            .padding(.top, 26)
+            // Reserve a standard titlebar strip at the very top: the floating glass
+            // cards start BELOW it, so the macOS traffic lights sit in the native
+            // titlebar area over the backdrop — never over the sidebar's rounded card.
+            .padding(.top, kTitlebarStrip)
             .ignoresSafeArea(.container, edges: .top)
 
             if ui.zenMode { ZenModeView().zIndex(10).transition(.opacity) }
@@ -171,15 +180,19 @@ struct Sidebar: View {
     @ObservedObject private var ui = UIState.shared
     @ObservedObject private var library = Library.shared
     @ObservedObject private var youtube = YouTubeService.shared
+    @ObservedObject private var settings = Settings.shared
     @ObservedObject private var profileStore = ProfileStore.shared
 
     private var librarySections: [Tab] {
-        [.home, .new, .nowPlaying, .songs, .albums, .artists, .playlists]
+        var sections: [Tab] = [.home, .new, .nowPlaying, .songs, .albums, .artists, .playlists]
+        if settings.qobuzEnabled { sections.append(.qobuz) }
+        return sections
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Leave clean room at the top for the window's traffic-light buttons.
+            // Small breathing room at the card's top (the traffic lights live in
+            // the titlebar strip above the card, not inside it).
             Color.clear.frame(height: 18)
 
             ScrollView {
@@ -225,7 +238,7 @@ struct Sidebar: View {
         .background(.black.opacity(0.10), in: RoundedRectangle(cornerRadius: kPanelRadius))
         .appGlass(in: .rect(cornerRadius: kPanelRadius))
         .padding(.leading, kPanelInset)
-        .padding(.vertical, kPanelInset)
+        .padding(.vertical, kPanelInset)   // symmetric top/bottom margin (centered vertically)
         .padding(.trailing, kPanelInset / 2)
     }
 
@@ -308,6 +321,7 @@ struct MainArea: View {
         case .artists: return "Artists"
         case .playlists: return "Playlists"
         case .youtube: return "YouTube"
+        case .qobuz: return "Qobuz"
         case .profile: return "Profile"
         }
     }
@@ -331,7 +345,7 @@ struct MainArea: View {
         .clipShape(RoundedRectangle(cornerRadius: kPanelRadius))
         .appGlass(in: .rect(cornerRadius: kPanelRadius))
         .padding(.trailing, kPanelInset)
-        .padding(.vertical, kPanelInset)
+        .padding(.vertical, kPanelInset)   // symmetric top/bottom margin (centered vertically)
         .padding(.leading, kPanelInset / 2)
     }
 
@@ -342,7 +356,9 @@ struct MainArea: View {
                 .lineLimit(1)
             if library.importing { ProgressView().controlSize(.small) }
             Spacer(minLength: 12)
-            TopSearchField()
+            // The YouTube/Qobuz tabs have their own dedicated search fields, so
+            // the global one would just be redundant clutter there.
+            if ui.tab != .youtube && ui.tab != .qobuz { TopSearchField() }
             Button { showImporter = true } label: {
                 Image(systemName: "plus").frame(width: 18, height: 18)
             }
@@ -360,6 +376,7 @@ struct MainArea: View {
         case .artists: ArtistsView()
         case .playlists: PlaylistsView()
         case .youtube: YouTubeView()
+        case .qobuz: QobuzView()
         case .profile: ProfileView()
         }
     }
@@ -636,10 +653,12 @@ struct ArtistsView: View {
                     .init(color: .black.opacity(0.55), location: 1.0),
                 ], startPoint: .top, endPoint: .bottom)
             )
-            // Feather the bottom to transparent so it dissolves into the panel.
+            // Feather BOTH the top (so the photo dissolves into the title bar above
+            // instead of a hard seam) and the bottom (into the panel below).
             .mask(
                 LinearGradient(stops: [
-                    .init(color: .white, location: 0.0),
+                    .init(color: .white.opacity(0.0), location: 0.0),
+                    .init(color: .white, location: 0.16),
                     .init(color: .white, location: 0.74),
                     .init(color: .white.opacity(0.0), location: 1.0),
                 ], startPoint: .top, endPoint: .bottom)
@@ -1078,56 +1097,55 @@ struct NewView: View {
 
     var body: some View {
         Group {
-            if youtube.newReleasesLoading && youtube.newReleases.isEmpty {
+            if youtube.artistNewLoading && youtube.artistNew.isEmpty {
                 VStack(spacing: 12) {
                     ProgressView().controlSize(.large)
-                    Text("Loading new releases…").font(.caption).foregroundStyle(.secondary)
+                    Text("Finding new music for you…").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if youtube.newReleases.isEmpty {
+            } else if youtube.artistNew.isEmpty && youtube.similarNew.isEmpty {
                 unavailable
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 26) {
                         featured
-                        if !youtube.artistNew.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("From artists you listen to").font(.title3.weight(.bold)).padding(.horizontal, 28)
-                                LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
-                                    ForEach(youtube.artistNew) { YTAlbumCard(album: $0) }
-                                }
-                                .padding(.horizontal, 24)
-                            }
-                        }
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("New Releases").font(.title3.weight(.bold)).padding(.horizontal, 28)
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
-                                ForEach(youtube.newReleases) { YTAlbumCard(album: $0) }
-                            }
-                            .padding(.horizontal, 24)
-                        }
+                        // Rest of the user's artists' latest releases.
+                        section("From artists you listen to", albums: Array(youtube.artistNew.dropFirst(2)))
+                        // Discovery that still matches taste: genre-similar artists.
+                        section("New for your taste", albums: youtube.similarNew)
                     }
                     .padding(.top, 16)
                     .padding(.bottom, 96)
                 }
             }
         }
-        .task(id: youtube.ready) { youtube.loadNewReleases(); youtube.loadArtistNew() }
+        .task(id: youtube.ready) { youtube.loadArtistNew() }
     }
 
-    // Two big featured cards from the freshest releases.
-    @ViewBuilder private var featured: some View {
-        let top = Array(youtube.newReleases.prefix(2))
-        if !top.isEmpty {
+    @ViewBuilder private func section(_ title: String, albums: [YTAlbum]) -> some View {
+        if !albums.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("New").font(.largeTitle.weight(.bold)).padding(.horizontal, 28)
-                HStack(spacing: 16) {
-                    ForEach(top) { album in
-                        Button {
-                            youtube.openAlbum(id: album.id, title: album.title)
-                            withAnimation(.smooth(duration: 0.3)) { UIState.shared.tab = .youtube }
-                        } label: { featureCard(album) }
-                        .buttonStyle(.plain)
+                Text(title).font(.title3.weight(.bold)).padding(.horizontal, 28)
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                    ForEach(albums) { YTAlbumCard(album: $0) }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+    }
+
+    // Two big featured cards — Apple-Music style: kicker + title + artist ABOVE a
+    // clean cover. Always taste-based: the freshest releases from the user's own
+    // artists, falling back to genre-similar artists.
+    @ViewBuilder private var featured: some View {
+        let source = youtube.artistNew.isEmpty ? youtube.similarNew : youtube.artistNew
+        let top = Array(source.prefix(2))
+        if !top.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("New").font(.system(size: 32, weight: .bold)).padding(.horizontal, 28)
+                HStack(alignment: .top, spacing: 22) {
+                    ForEach(Array(top.enumerated()), id: \.element.id) { i, album in
+                        featureCard(album, kicker: i == 0 ? "NEW RELEASE" : "NEW ALBUM")
                     }
                 }
                 .padding(.horizontal, 28)
@@ -1135,33 +1153,44 @@ struct NewView: View {
         }
     }
 
-    private func featureCard(_ album: YTAlbum) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            Color.clear
-                .frame(maxWidth: .infinity).frame(height: 230)
-                .overlay { RemoteArtwork(url: album.thumb, fallback: album.thumb) { Color(white: 0.15) } }
-                .clipped()
-            LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("NEW RELEASE").font(.caption2.weight(.bold)).tracking(1.2).foregroundStyle(.white.opacity(0.85))
-                Text(album.title).font(.title3.weight(.heavy)).foregroundStyle(.white).lineLimit(2)
-                if !album.artist.isEmpty {
-                    Text(album.artist).font(.caption).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+    private func featureCard(_ album: YTAlbum, kicker: String) -> some View {
+        Button {
+            youtube.openAlbum(id: album.id, title: album.title)
+            withAnimation(.smooth(duration: 0.3)) { UIState.shared.clearSearch(); UIState.shared.tab = .youtube }
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(kicker)
+                    .font(.caption.weight(.semibold)).tracking(0.6)
+                    .foregroundStyle(.secondary)
+                Text(album.title).font(.title3.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
+                Text(album.artist.isEmpty ? "Album" : album.artist)
+                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+
+                ZStack {
+                    RemoteArtwork(url: album.thumb, fallback: album.thumb) { Color(white: 0.15) }
+                        .blur(radius: 34).opacity(0.55)
+                        .overlay(Color.black.opacity(0.3))
+                    ArtworkSquare(image: nil, corner: 10, remote: album.thumb, remoteFallback: album.thumb)
+                        .frame(height: 226)
+                        .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
                 }
+                .frame(maxWidth: .infinity).frame(height: 270)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)) }
+                .padding(.top, 3)
             }
-            .padding(18)
         }
-        .frame(height: 230)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.10)) }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var unavailable: some View {
         VStack(spacing: 10) {
             Image(systemName: "square.grid.2x2").font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
-            Text("New releases unavailable").font(.headline)
-            Text(youtube.ready ? "Couldn’t reach YouTube Music right now."
-                               : "Enable YouTube Music in Settings to see new releases.")
+            Text("No new music yet").font(.headline)
+            Text(!youtube.ready ? "Enable YouTube Music in Settings to see new releases."
+                 : Library.shared.tracks.isEmpty ? "Add some music to your library — New is built from the artists you listen to."
+                 : "Couldn’t reach YouTube Music right now.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(40)
@@ -1925,6 +1954,16 @@ struct NowPlayingView: View {
                 Image(systemName: "speaker.wave.3.fill")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                Button { withAnimation(.smooth(duration: 0.3)) { ui.lyricsOpen.toggle() } } label: {
+                    Image(systemName: "quote.bubble")
+                        .font(.caption)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ui.lyricsOpen ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
+                .help("Lyrics")
+                .padding(.leading, 6)
                 Button { MiniPlayerController.shared.toggle() } label: {
                     Image(systemName: "pip")
                         .font(.caption)
@@ -1934,7 +1973,6 @@ struct NowPlayingView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
                 .help("Mini player (.)")
-                .padding(.leading, 6)
             }
         }
     }
@@ -2429,6 +2467,7 @@ struct AlbumDetailView: View {
     let edit: () -> Void
     @ObservedObject private var library = Library.shared
     @ObservedObject private var player = Player.shared
+    @State private var artistHover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2480,9 +2519,23 @@ struct AlbumDetailView: View {
                 Text(album.name)
                     .font(.title2.weight(.semibold))
                     .lineLimit(2)
-                Text(album.artist)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Button {
+                    let name = album.artist
+                    guard !name.isEmpty, name != "Unknown Artist", name != "Various Artists" else { return }
+                    UIState.shared.clearSearch()
+                    withAnimation(.smooth(duration: 0.25)) {
+                        UIState.shared.artistSelection = name
+                        UIState.shared.tab = .artists
+                    }
+                } label: {
+                    Text(album.artist)
+                        .font(.callout)
+                        .foregroundStyle(artistHover ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                        .underline(artistHover)
+                }
+                .buttonStyle(.plain)
+                .onHover { artistHover = $0 }
+                .help("Go to \(album.artist)")
                 HStack(spacing: 14) {
                     Text("\(album.tracks.count) songs · \(Int(album.tracks.reduce(0) { $0 + $1.duration } / 60)) min")
                         .font(.caption)
@@ -2593,7 +2646,7 @@ struct EditAlbumSheet: View {
 // MARK: - Settings sheet
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case appearance, playback, equalizer, library, youtube
+    case appearance, playback, equalizer, library, youtube, qobuz
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -2602,6 +2655,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .equalizer: return "Equalizer"
         case .library: return "Library"
         case .youtube: return "YouTube Music"
+        case .qobuz: return "Qobuz"
         }
     }
     var icon: String {
@@ -2611,6 +2665,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .equalizer: return "waveform"
         case .library: return "folder"
         case .youtube: return "play.rectangle.fill"
+        case .qobuz: return "hifispeaker.fill"
         }
     }
 }
@@ -2619,6 +2674,7 @@ struct SettingsSheet: View {
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var watcher = FolderWatcher.shared
     @ObservedObject private var youtube = YouTubeService.shared
+    @ObservedObject private var qobuz = QobuzService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showFolderPicker = false
     @State private var category: SettingsCategory = .appearance
@@ -2701,6 +2757,85 @@ struct SettingsSheet: View {
         }
     }
 
+    @ViewBuilder private var qobuzSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Qobuz")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { settings.qobuzEnabled },
+                    set: { on in
+                        settings.qobuzEnabled = on
+                        if !on, UIState.shared.tab == .qobuz { UIState.shared.tab = .albums }
+                    }))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .labelsHidden()
+            }
+            Text("Adds a Qobuz tab to search and download hi-res music with your own Qobuz subscription (downloads require a paid plan).")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if settings.qobuzEnabled {
+                if !qobuz.moduleReady {
+                    if qobuz.installing {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Installing qobuz-dl…").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption2).foregroundStyle(.orange)
+                            Text("qobuz-dl isn’t installed yet.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Install") { qobuz.installModule() }
+                                .buttonStyle(.glass).controlSize(.small)
+                        }
+                    }
+                }
+
+                Divider().opacity(0.15)
+                Text("Account").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                TextField("Email", text: $settings.qobuzEmail)
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                SecureField("Password", text: $settings.qobuzPassword)
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                Picker("Download quality", selection: $settings.qobuzQuality) {
+                    Text("MP3 320").tag(5)
+                    Text("CD · FLAC 16-bit").tag(6)
+                    Text("Hi-Res · FLAC 24-bit ≤96 kHz").tag(7)
+                    Text("Hi-Res · FLAC 24-bit >96 kHz").tag(27)
+                }
+                .font(.caption)
+
+                HStack(spacing: 8) {
+                    Button("Test Connection") { qobuz.checkAccount() }
+                        .buttonStyle(.glass).controlSize(.small)
+                        .disabled(!qobuz.ready || qobuz.checking)
+                    if qobuz.checking {
+                        ProgressView().controlSize(.small)
+                    } else if let e = qobuz.accountError {
+                        if e.isEmpty {
+                            Label(qobuz.accountLabel?.isEmpty == false ? "Connected · \(qobuz.accountLabel!)" : "Connected",
+                                  systemImage: "checkmark.seal.fill")
+                                .font(.caption2).foregroundStyle(.green)
+                        } else {
+                            Text(e).font(.caption2).foregroundStyle(.orange).lineLimit(2)
+                        }
+                    }
+                }
+                Text("Downloads saved to ~/Music/Mute/Qobuz and imported into your library, fully tagged with cover art.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             categoryNav
@@ -2713,6 +2848,7 @@ struct SettingsSheet: View {
                     case .equalizer: equalizerPanel
                     case .library: libraryPanel
                     case .youtube: youtubeSection
+                    case .qobuz: qobuzSection
                     }
                 }
                 .padding(24)
@@ -3151,11 +3287,18 @@ struct SearchResultsView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 18) {
                             ForEach(artists) { artist in
-                                Button { ui.searchText = artist.name; ui.searchScope = .all } label: {
+                                Button {
+                                    // Open the full artist page (not a re-search) so the
+                                    // album-artist isn't split off from the artist itself.
+                                    ui.clearSearch()
+                                    withAnimation(.smooth(duration: 0.25)) {
+                                        ui.artistSelection = artist.name
+                                        ui.tab = .artists
+                                    }
+                                } label: {
                                     VStack(spacing: 6) {
-                                        ArtworkSquare(image: artist.art, corner: 30)
+                                        ArtistAvatar(localArt: artist.art, remote: youtube.artistImage(for: artist.name))
                                             .frame(width: 60, height: 60)
-                                            .clipShape(Circle())
                                         Text(artist.name).font(.caption).lineLimit(1)
                                         Text("\(artist.count) songs").font(.caption2).foregroundStyle(.tertiary)
                                     }
@@ -3293,13 +3436,14 @@ struct YouTubeView: View {
     }
 
     private var searchHeader: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 16) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                 TextField("Search artists, albums and songs", text: $youtube.query)
                     .textFieldStyle(.plain)
+                    .font(.callout)
                     .focused($searchFocused)
                     .onSubmit { youtube.search() }
                 if youtube.searching {
@@ -3307,28 +3451,30 @@ struct YouTubeView: View {
                 } else if !youtube.query.isEmpty {
                     Button { youtube.query = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.caption)
+                            .font(.callout)
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
             .appGlass(in: .capsule)
 
             HStack(spacing: 6) {
                 Label(youtube.online ? "Online" : "Offline",
                       systemImage: youtube.online ? "wifi" : "wifi.slash")
-                    .font(.caption2.weight(.medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(youtube.online ? .green : .orange)
                 Spacer()
                 Text("Tap to stream · download to replay offline")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
             }
         }
         .padding(.horizontal, 24)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
         .onAppear { searchFocused = true }
     }
 
@@ -3531,7 +3677,8 @@ struct YTArtistView: View {
                 )
                 .mask(
                     LinearGradient(stops: [
-                        .init(color: .white, location: 0.0),
+                        .init(color: .white.opacity(0.0), location: 0.0),
+                        .init(color: .white, location: 0.16),
                         .init(color: .white, location: 0.72),
                         .init(color: .white.opacity(0.0), location: 1.0),
                     ], startPoint: .top, endPoint: .bottom)
@@ -3652,7 +3799,7 @@ struct YTAlbumCard: View {
     var body: some View {
         Button {
             YouTubeService.shared.openAlbum(id: album.id, title: album.title)
-            withAnimation(.smooth(duration: 0.3)) { UIState.shared.tab = .youtube }
+            withAnimation(.smooth(duration: 0.3)) { UIState.shared.clearSearch(); UIState.shared.tab = .youtube }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 YTArt(url: album.thumb, size: 132, corner: 12, placeholder: "opticaldisc")
@@ -3681,7 +3828,7 @@ struct YTArtistCircle: View {
     var body: some View {
         Button {
             YouTubeService.shared.openArtist(id: artist.id, name: artist.name)
-            withAnimation(.smooth(duration: 0.3)) { UIState.shared.tab = .youtube }
+            withAnimation(.smooth(duration: 0.3)) { UIState.shared.clearSearch(); UIState.shared.tab = .youtube }
         } label: {
             VStack(spacing: 7) {
                 YTArt(url: artist.thumb, size: 78, corner: 39, placeholder: "person.fill")
@@ -3757,6 +3904,268 @@ struct YTLoading: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Qobuz (hi-res search + downloads)
+
+struct QobuzView: View {
+    @ObservedObject private var qobuz = QobuzService.shared
+    @ObservedObject private var settings = Settings.shared
+    @FocusState private var searchFocused: Bool
+
+    private var qualityLabel: String {
+        switch settings.qobuzQuality {
+        case 5: return "MP3 320"
+        case 7: return "FLAC 24-bit ≤96 kHz"
+        case 27: return "FLAC 24-bit >96 kHz"
+        default: return "FLAC 16-bit CD"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchHeader
+            if !qobuz.moduleReady {
+                setupCard(icon: "shippingbox",
+                          title: "qobuz-dl isn’t installed",
+                          message: "Install the Qobuz tool into the app’s music toolkit to search and download.",
+                          buttonTitle: qobuz.installing ? "Installing…" : "Install",
+                          busy: qobuz.installing) { qobuz.installModule() }
+            } else if !qobuz.configured {
+                setupCard(icon: "person.badge.key",
+                          title: "Connect your Qobuz account",
+                          message: "Qobuz search and downloads use your own subscription. Add your email and password in Settings.",
+                          buttonTitle: "Open Settings", busy: false) {
+                    NotificationCenter.default.post(name: .openSettings, object: nil)
+                }
+            } else if qobuz.searching {
+                YTLoading()
+            } else if let error = qobuz.searchError {
+                YTNote(text: error, icon: "exclamationmark.triangle")
+                Spacer(minLength: 0)
+            } else if qobuz.albums.isEmpty && qobuz.tracks.isEmpty {
+                YTNote(text: "Search Qobuz for albums and tracks —\ndownloads come in \(qualityLabel).",
+                       icon: "hifispeaker")
+                Spacer(minLength: 0)
+            } else {
+                results
+            }
+        }
+        .padding(.top, 12)
+    }
+
+    private var searchHeader: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                TextField("Search artists, albums and songs on Qobuz", text: $qobuz.query)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                    .focused($searchFocused)
+                    .onSubmit { qobuz.search() }
+                if qobuz.searching {
+                    ProgressView().controlSize(.small)
+                } else if !qobuz.query.isEmpty {
+                    Button { qobuz.query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .appGlass(in: .capsule)
+
+            HStack(spacing: 6) {
+                Label("Hi-Res", systemImage: "waveform.badge.magnifyingglass")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.cyan)
+                Spacer()
+                Text("Downloads in \(qualityLabel) · saved to your library")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+        .onAppear { searchFocused = true }
+    }
+
+    private func setupCard(icon: String, title: String, message: String,
+                           buttonTitle: String, busy: Bool, action: @escaping () -> Void) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: icon).font(.system(size: 34, weight: .light)).foregroundStyle(.secondary)
+            Text(title).font(.headline)
+            Text(message)
+                .font(.caption).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center).frame(maxWidth: 360)
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    if busy { ProgressView().controlSize(.small) }
+                    Text(buttonTitle)
+                }
+            }
+            .buttonStyle(.glassProminent)
+            .disabled(busy)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var results: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                if !qobuz.albums.isEmpty {
+                    YTSectionHeader(title: "Albums", count: qobuz.albums.count)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 18) {
+                            ForEach(qobuz.albums) { QBAlbumCard(album: $0) }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+                }
+                if !qobuz.tracks.isEmpty {
+                    YTSectionHeader(title: "Tracks", count: qobuz.tracks.count)
+                    LazyVStack(spacing: 3) {
+                        ForEach(qobuz.tracks) { QBTrackRow(track: $0) }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+            .padding(.top, 14)
+            .padding(.bottom, 96)
+        }
+    }
+}
+
+/// Small cyan "HI-RES" pill shown on 24-bit content.
+struct QBHiResBadge: View {
+    var body: some View {
+        Text("HI-RES")
+            .font(.system(size: 8, weight: .heavy)).tracking(0.8)
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(.cyan.opacity(0.2), in: Capsule())
+            .foregroundStyle(.cyan)
+    }
+}
+
+/// The shared download-state control: arrow → spinner → checkmark.
+struct QBDownloadButton: View {
+    let state: DownloadState?
+    let action: () -> Void
+
+    var body: some View {
+        switch state {
+        case .downloading:
+            ProgressView().controlSize(.small).frame(width: 26, height: 26)
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.callout).foregroundStyle(.green)
+                .frame(width: 26, height: 26)
+                .help("Downloaded to your library")
+        case .failed(let message):
+            Button(action: action) {
+                Image(systemName: "exclamationmark.arrow.circlepath")
+                    .font(.callout).frame(width: 26, height: 26).contentShape(Circle())
+            }
+            .buttonStyle(.plain).foregroundStyle(.orange)
+            .help("Failed: \(message) — tap to retry")
+        case nil:
+            Button(action: action) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.callout).frame(width: 26, height: 26).contentShape(Circle())
+            }
+            .buttonStyle(.plain).foregroundStyle(.secondary)
+            .help("Download")
+        }
+    }
+}
+
+struct QBAlbumCard: View {
+    let album: QBAlbum
+    @ObservedObject private var qobuz = QobuzService.shared
+    @State private var hovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                YTArt(url: album.cover, size: 132, corner: 12, placeholder: "opticaldisc")
+                if case .downloading = qobuz.state(forAlbum: album.id) {
+                    ProgressView().controlSize(.small).padding(6)
+                        .background(.black.opacity(0.55), in: Circle()).padding(5)
+                } else if case .done = qobuz.state(forAlbum: album.id) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green).padding(6)
+                        .background(.black.opacity(0.55), in: Circle()).padding(5)
+                } else if hovered {
+                    Button { qobuz.download(album: album) } label: {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.title3).foregroundStyle(.white)
+                            .padding(4).background(.black.opacity(0.55), in: Circle())
+                    }
+                    .buttonStyle(.plain).padding(5)
+                    .help("Download album")
+                }
+            }
+            HStack(spacing: 5) {
+                Text(album.title).font(.caption.weight(.medium)).lineLimit(1)
+                if album.hires { QBHiResBadge() }
+            }
+            .frame(width: 132, alignment: .leading)
+            Text([album.artist, album.year].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                .frame(width: 132, alignment: .leading)
+        }
+        .onHover { hovered = $0 }
+    }
+}
+
+struct QBTrackRow: View {
+    let track: QBTrack
+    @ObservedObject private var qobuz = QobuzService.shared
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: track.cover) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Rectangle().fill(.white.opacity(0.06))
+                    .overlay(Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary))
+            }
+            .frame(width: 46, height: 46)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.08)) }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(track.title).font(.callout).lineLimit(1)
+                    if track.hires { QBHiResBadge() }
+                }
+                HStack(spacing: 6) {
+                    Text([track.artist, track.album].filter { !$0.isEmpty }.joined(separator: " — "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if track.duration > 0 {
+                        Text("· \(timestamp(track.duration))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            Spacer()
+            QBDownloadButton(state: qobuz.state(forTrack: track.id)) { qobuz.download(track: track) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: 12))
+        .onHover { hovered = $0 }
     }
 }
 

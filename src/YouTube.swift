@@ -45,6 +45,7 @@ struct YTArtistDetail: Equatable {
     let albums: [YTAlbum]
     let singles: [YTAlbum]
     let topSongs: [YTResult]
+    var related: [YTArtist] = []
 }
 
 /// A single timed lyric line (time in seconds from the track start).
@@ -452,25 +453,63 @@ final class YouTubeService: ObservableObject {
 
     @Published private(set) var newReleases: [YTAlbum] = []
     @Published private(set) var newReleasesLoading = false
-    @Published private(set) var artistNew: [YTAlbum] = []   // latest release per top artist
+    @Published private(set) var artistNew: [YTAlbum] = []    // latest releases from the user's artists
+    @Published private(set) var similarNew: [YTAlbum] = []   // latest releases from genre-similar artists
+    @Published private(set) var artistNewLoading = false
     private var artistNewLoaded = false
 
-    /// Latest release from each of the user's most-played artists (taste-based).
+    /// The New tab, built entirely from the user's taste: the latest album + single
+    /// from each of their library artists, then new releases from genre-similar
+    /// (YouTube "related") artists — never a generic region feed.
     func loadArtistNew(force: Bool = false) {
         guard ready, online, force || !artistNewLoaded else { return }
-        let names = Array(Library.shared.topArtists.prefix(6).map(\.name)).filter { !$0.isEmpty }
+        // Prefer most-played artists; fill out with the rest of the library.
+        var names = Library.shared.topArtists.prefix(12).map(\.name).filter { !$0.isEmpty }
+        if names.count < 12 {
+            let distinct = Array(Set(Library.shared.tracks.map(\.artist)
+                .filter { !$0.isEmpty && $0 != "Unknown Artist" })).sorted()
+            for a in distinct where !names.contains(a) {
+                names.append(a); if names.count >= 12 { break }
+            }
+        }
         guard !names.isEmpty else { return }
         artistNewLoaded = true
+        artistNewLoading = true
+        let userArtists = Set(Library.shared.tracks.map { Self.norm($0.artist) })
         Task {
             var out: [YTAlbum] = []
             var seen = Set<String>()
+            var relatedById: [String: YTArtist] = [:]
             for name in names {
-                let detail = await Task.detached { Self.fetchArtistByName(name) }.value
-                if let a = detail?.albums.first ?? detail?.singles.first, !seen.contains(a.id) {
+                guard let detail = await Task.detached(operation: { Self.fetchArtistByName(name) }).value else { continue }
+                for a in [detail.albums.first, detail.singles.first].compactMap({ $0 }) where !seen.contains(a.id) {
                     seen.insert(a.id); out.append(a)
                 }
+                for r in detail.related where !r.name.isEmpty && !userArtists.contains(Self.norm(r.name)) {
+                    relatedById[r.id] = r
+                }
+                if !out.isEmpty { artistNew = out }     // progressive reveal
             }
-            if !out.isEmpty { artistNew = out }
+            artistNewLoading = false
+            loadSimilarNew(from: Array(relatedById.values), excluding: seen)
+        }
+    }
+
+    /// New releases from genre-similar (related) artists — discovery that still
+    /// matches the user's taste (related artists share genre/scene).
+    private func loadSimilarNew(from related: [YTArtist], excluding seenAlbums: Set<String>) {
+        let pick = Array(related.shuffled().prefix(12))
+        guard !pick.isEmpty else { return }
+        Task {
+            var out: [YTAlbum] = []
+            var seen = seenAlbums
+            for artist in pick {
+                let detail = await Task.detached(operation: { Self.fetchArtist(artist.id) }).value
+                if let a = detail?.albums.first ?? detail?.singles.first, !seen.contains(a.id) {
+                    seen.insert(a.id); out.append(a)
+                    similarNew = out                    // progressive reveal
+                }
+            }
         }
     }
 
@@ -1076,7 +1115,7 @@ final class YouTubeService: ObservableObject {
                 let venv = Self.appSupportDir.appendingPathComponent("pyenv").path
                 _ = await runStreaming("/usr/bin/python3", ["-m", "venv", venv]) { [weak self] c in self?.appendLog(c) }
                 let pip = Self.appSupportDir.appendingPathComponent("pyenv/bin/pip").path
-                _ = await runStreaming(pip, ["install", "--upgrade", "ytmusicapi"]) { [weak self] c in self?.appendLog(c) }
+                _ = await runStreaming(pip, ["install", "--upgrade", "ytmusicapi", "qobuz-dl"]) { [weak self] c in self?.appendLog(c) }
             }
             Self.ensureHelper()
             appendLog("\n✓ Setup complete.")
@@ -1123,8 +1162,9 @@ final class YouTubeService: ObservableObject {
     private struct ArtistJSON: Decodable {
         struct Album: Decodable { let id: String; let title: String; let artist: String; let year: String; let kind: String; let thumb: String? }
         struct Song: Decodable { let id: String; let title: String; let artist: String; let duration: Double; let thumb: String? }
+        struct Related: Decodable { let id: String; let name: String; let thumb: String? }
         let name: String?; let thumb: String?; let bio: String?; let subscribers: String?
-        let albums: [Album]?; let singles: [Album]?; let songs: [Song]?; let error: String?
+        let albums: [Album]?; let singles: [Album]?; let songs: [Song]?; let related: [Related]?; let error: String?
     }
     private struct AlbumJSON: Decodable {
         struct Track: Decodable { let id: String; let title: String; let artist: String; let duration: Double; let track: Int? }
@@ -1166,9 +1206,10 @@ final class YouTubeService: ObservableObject {
         let songs = (p.songs ?? []).map {
             YTResult(id: $0.id, title: $0.title, artist: $0.artist, duration: $0.duration, cover: url($0.thumb))
         }
+        let related = (p.related ?? []).map { YTArtist(id: $0.id, name: $0.name, thumb: url($0.thumb)) }
         return YTArtistDetail(name: p.name ?? "", thumb: url(p.thumb), bio: p.bio ?? "",
                               subscribers: p.subscribers ?? "", albums: map(p.albums),
-                              singles: map(p.singles), topSongs: songs)
+                              singles: map(p.singles), topSongs: songs, related: related)
     }
 
     nonisolated private static func fetchAlbum(_ id: String) -> YTAlbumDetail? {
@@ -1366,11 +1407,17 @@ extension YouTubeService {
                     songs.append({"id": r["videoId"], "title": r.get("title") or "",
                                   "artist": first_artist(r), "duration": r.get("duration_seconds") or 0,
                                   "thumb": thumb(r)})
+            # Genre-similar artists (for taste-based discovery).
+            related = []
+            for r in ((a.get("related") or {}).get("results") or []):
+                b = r.get("browseId")
+                if b:
+                    related.append({"id": b, "name": r.get("title") or "", "thumb": thumb(r)})
             out = {"id": bid, "name": name, "thumb": thumb(a),
                    "bio": a.get("description") or "",
                    "subscribers": a.get("subscribers") or "",
                    "albums": section("albums", "Album"), "singles": section("singles", "Single"),
-                   "songs": songs}
+                   "songs": songs, "related": related}
             print(json.dumps(out))
         elif cmd == "album":
             a = yt.get_album(sys.argv[2])

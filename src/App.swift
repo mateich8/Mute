@@ -3,10 +3,36 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Don't let macOS restore a stale saved window on top of the fresh scene
+        // window — that double-layering made the title bar / panels look broken.
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
         // Move the legacy "GlassPlay" data directories into place before any
         // singleton touches the filesystem. Idempotent: once renamed the old
         // directory is gone, so this becomes a no-op.
         Self.migrateLegacyData()
+    }
+
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
+
+    /// Makes the main window non-restorable and full-bleed with a transparent
+    /// titlebar, so the standard macOS traffic lights stay anchored to the native
+    /// window frame's top-left (over the backdrop), while our content fills the
+    /// window. The floating cards reserve a titlebar strip (kTitlebarStrip) below
+    /// the lights, so the buttons never overlap the sidebar's rounded card.
+    static func configureMainWindow(attempt: Int = 0) {
+        DispatchQueue.main.async {
+            guard let w = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) else {
+                if attempt < 10 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { configureMainWindow(attempt: attempt + 1) }
+                }
+                return
+            }
+            w.isRestorable = false
+            w.styleMask.insert(.fullSizeContentView)
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.isMovableByWindowBackground = true
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -158,9 +184,12 @@ struct MuteApp: App {
     var body: some Scene {
         Window("Mute", id: "main") {
             ContentView()
-                .onAppear { NSApp.activate(ignoringOtherApps: true) }
+                .onAppear {
+                    NSApp.activate(ignoringOtherApps: true)
+                    AppDelegate.configureMainWindow()
+                }
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 920, height: 700)
+        .defaultSize(width: 980, height: 720)
     }
 }

@@ -92,6 +92,9 @@ final class Player: NSObject, ObservableObject {
     /// Queue in original order, for restoring when shuffle turns off.
     private var baseQueue: [Track] = []
     private var ticker: Timer?
+    /// Guards against firing the end-of-stream advance more than once while the
+    /// next track resolves (remote streams advance off the known song length).
+    private var remoteEnding = false
 
     // Gapless / crossfade state
     private var standbyArmed = false
@@ -485,6 +488,7 @@ final class Player: NSObject, ObservableObject {
         streamPlayer = player
         remoteURL = url
         playingRemote = true
+        remoteEnding = false
         currentTechnical = nil   // no local file to inspect for a stream
         player.play()
         elapsed = 0
@@ -840,6 +844,17 @@ final class Player: NSObject, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isPlaying else { return }
                 self.elapsed = self.position
+                // YouTube containers can report a doubled/bogus duration, so
+                // AVPlayer's own end-of-item never fires at the right time (the
+                // track plays into silence and never advances). Advance off the
+                // KNOWN song length instead — the authority for streams.
+                if self.playingRemote, !self.remoteEnding,
+                   let known = self.current?.duration, known > 0,
+                   self.elapsed >= known - 0.4 {
+                    self.remoteEnding = true
+                    self.trackFinished()
+                    return
+                }
                 self.maybeArmNext()
             }
         }

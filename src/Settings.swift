@@ -120,6 +120,20 @@ final class Settings: ObservableObject {
     @Published var geniusToken: String {
         didSet { defaults.set(geniusToken, forKey: "geniusToken") }
     }
+    // Qobuz (hi-res search + downloads via the user's own subscription).
+    @Published var qobuzEnabled: Bool {
+        didSet { defaults.set(qobuzEnabled, forKey: "qobuzEnabled") }
+    }
+    @Published var qobuzEmail: String {
+        didSet { defaults.set(qobuzEmail, forKey: "qobuzEmail") }
+    }
+    @Published var qobuzPassword: String {
+        didSet { defaults.set(qobuzPassword, forKey: "qobuzPassword") }
+    }
+    /// Download quality: 5 = MP3 320, 6 = CD FLAC, 7 = FLAC ≤96 kHz, 27 = FLAC >96 kHz.
+    @Published var qobuzQuality: Int {
+        didSet { defaults.set(qobuzQuality, forKey: "qobuzQuality") }
+    }
     @Published var eqEnabled: Bool {
         didSet {
             defaults.set(eqEnabled, forKey: "eqEnabled")
@@ -151,6 +165,10 @@ final class Settings: ObservableObject {
         albumSort = AlbumSort(rawValue: defaults.string(forKey: "albumSort") ?? "") ?? .name
         showLyrics = defaults.object(forKey: "showLyrics") as? Bool ?? true
         geniusToken = defaults.string(forKey: "geniusToken") ?? ""
+        qobuzEnabled = defaults.object(forKey: "qobuzEnabled") as? Bool ?? true
+        qobuzEmail = defaults.string(forKey: "qobuzEmail") ?? ""
+        qobuzPassword = defaults.string(forKey: "qobuzPassword") ?? ""
+        qobuzQuality = defaults.object(forKey: "qobuzQuality") as? Int ?? 6
         eqEnabled = defaults.bool(forKey: "eqEnabled")
         if let gains = defaults.array(forKey: "eqGains") as? [Double], gains.count == 10 {
             eqGains = gains
