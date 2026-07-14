@@ -182,6 +182,7 @@ struct Sidebar: View {
     @ObservedObject private var youtube = YouTubeService.shared
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var profileStore = ProfileStore.shared
+    @Namespace private var navNS
 
     private var librarySections: [Tab] {
         var sections: [Tab] = [.home, .new, .nowPlaying, .songs, .albums, .artists, .playlists]
@@ -252,22 +253,31 @@ struct Sidebar: View {
     }
 
     private func navRow(_ tab: Tab) -> some View {
+        // The Playlists row yields the selection pill to the individual playlist
+        // rows when one is open (otherwise two views claim the same pill id).
         let selected = ui.tab == tab && ui.debouncedSearch.isEmpty
+            && !(tab == .playlists && ui.playlistSelection != nil)
         return Button {
-            withAnimation(.smooth(duration: 0.25)) {
+            withAnimation(.smooth(duration: 0.28)) {
                 ui.tab = tab
                 if tab != .artists { ui.artistSelection = nil }
+                if tab == .playlists { ui.playlistSelection = nil }
                 clearSearch()
             }
         } label: {
             HStack(spacing: 11) {
                 Image(systemName: tab.icon).font(.system(size: 13)).frame(width: 18)
+                    .symbolVariant(selected ? .fill : .none)
                 Text(tab.help).font(.callout)
                 Spacer()
             }
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(selected ? AnyShapeStyle(.white.opacity(0.13)) : AnyShapeStyle(.clear),
-                        in: RoundedRectangle(cornerRadius: 8))
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.14))
+                        .matchedGeometryEffect(id: "navPill", in: navNS)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -277,7 +287,7 @@ struct Sidebar: View {
     private func playlistRow(_ pl: Playlist) -> some View {
         let selected = ui.tab == .playlists && ui.playlistSelection == pl.id && ui.debouncedSearch.isEmpty
         return Button {
-            withAnimation(.smooth(duration: 0.25)) {
+            withAnimation(.smooth(duration: 0.28)) {
                 ui.tab = .playlists
                 ui.playlistSelection = pl.id
                 clearSearch()
@@ -290,8 +300,12 @@ struct Sidebar: View {
                 Spacer()
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(selected ? AnyShapeStyle(.white.opacity(0.13)) : AnyShapeStyle(.clear),
-                        in: RoundedRectangle(cornerRadius: 8))
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.14))
+                        .matchedGeometryEffect(id: "navPill", in: navNS)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1682,13 +1696,24 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 12)
             if let track = player.current {
+                let glow = library.dominantColor(for: track).map { Color(nsColor: $0) } ?? .black
                 VStack(spacing: 26) {
                     ArtworkCard(artwork: library.artwork(for: track),
                                 remote: track.remoteArtworkURL,
                                 remoteFallback: track.remoteArtworkFallbackURL)
-                        .frame(width: 280, height: 280)
-                        .scaleEffect(ui.artZoom)
+                        .frame(width: 300, height: 300)
+                        // Breathe with playback (Apple Music shrinks paused art),
+                        // and cast a soft ambient glow in the artwork's own color.
+                        .scaleEffect(ui.artZoom * (player.isPlaying ? 1.0 : 0.86))
+                        .shadow(color: glow.opacity(player.isPlaying ? 0.5 : 0),
+                                radius: 46, y: 18)
+                        .animation(.spring(response: 0.55, dampingFraction: 0.72), value: player.isPlaying)
                         .animation(.smooth(duration: 0.25), value: ui.artZoom)
+                        .animation(.smooth(duration: 0.5), value: glow)
+                        .id(track.id)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.92)),
+                            removal: .opacity.combined(with: .scale(scale: 1.04))))
                     VStack(spacing: 5) {
                         HStack(spacing: 8) {
                             Text(track.title)
@@ -1743,6 +1768,7 @@ struct NowPlayingView: View {
             Spacer(minLength: 24)
         }
         .padding(.horizontal, 28)
+        .animation(.smooth(duration: 0.4), value: player.current?.id)
     }
 
     // MARK: Up Next + Song Trivia side panel

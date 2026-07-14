@@ -3,6 +3,12 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // A generous shared cache so album/artist covers (AsyncImage) persist in
+        // memory + on disk — navigating back to a grid is instant, and covers
+        // survive relaunches instead of re-downloading.
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20,   // 64 MB
+                                   diskCapacity: 512 << 20,     // 512 MB
+                                   diskPath: "mute-img-cache")
         // Don't let macOS restore a stale saved window on top of the fresh scene
         // window — that double-layering made the title bar / panels look broken.
         UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
