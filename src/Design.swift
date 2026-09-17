@@ -291,3 +291,14 @@ extension View {
         }
     }
 }
+
+extension View {
+    /// Reports whether the content under the header has been scrolled, so the
+    /// header can grow a separator the way system apps do.
+    func tracksContentScroll() -> some View {
+        onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 6 } action: { _, scrolled in
+            guard UIState.shared.contentScrolled != scrolled else { return }
+            withAnimation(.smooth(duration: 0.2)) { UIState.shared.contentScrolled = scrolled }
+        }
+    }
+}

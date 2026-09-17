@@ -136,6 +136,23 @@ final class Library: ObservableObject {
             tracks[i] = Self.normalized(tracks[i])
             migrated = true
         }
+        // Repair albums that already split across an empty and a credited key
+        // ("album:master of puppets|" beside "album:master of puppets|metallica").
+        let creditedKeys = Set(tracks.compactMap { t -> String? in
+            guard let k = t.albumKey, k.hasPrefix("album:"), !k.hasSuffix("|") else { return nil }
+            return k
+        })
+        for i in tracks.indices {
+            guard let key = tracks[i].albumKey, key.hasPrefix("album:"), key.hasSuffix("|") else { continue }
+            let name = String(key.dropFirst("album:".count).dropLast())
+            let artist = tracks[i].artist.lowercased()
+            guard !artist.isEmpty else { continue }
+            let merged = "album:" + name + "|" + artist
+            if creditedKeys.contains(merged) {
+                tracks[i].albumKey = merged
+                migrated = true
+            }
+        }
         // Backfill added-dates from file creation dates (pre-sorting library).
         if tracks.contains(where: { $0.addedAt == nil }) {
             for i in tracks.indices where tracks[i].addedAt == nil {
@@ -159,7 +176,11 @@ final class Library: ObservableObject {
             t.album = parent.lastPathComponent
             t.albumKey = "folder:" + parent.path.lowercased()
         } else {
-            t.albumKey = "album:" + t.album.lowercased() + "|" + (t.albumArtist ?? "").lowercased()
+            // Key by whoever is credited: an album whose tracks carry an
+            // artist but no albumArtist would otherwise land under a different
+            // key than its own tagged tracks and split into two albums.
+            let credited = (t.albumArtist?.isEmpty == false) ? t.albumArtist! : t.artist
+            t.albumKey = "album:" + t.album.lowercased() + "|" + credited.lowercased()
         }
         return t
     }

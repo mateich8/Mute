@@ -53,6 +53,8 @@ final class UIState: ObservableObject {
     private(set) var lastLibraryTab: Tab = .albums
     // Smart search
     @Published var searchVisible = false
+    /// True once the current screen's content has scrolled under the header.
+    @Published var contentScrolled = false
     @Published var searchText = ""
     @Published var debouncedSearch = ""
     @Published var searchScope: SearchScope = .all
@@ -266,9 +268,15 @@ struct Sidebar: View {
                 Image(systemName: tab.icon).font(.system(size: 13)).frame(width: 18)
                     .symbolVariant(selected ? .fill : .none)
                 Text(tab.help).font(.callout)
-                Spacer()
+                Spacer(minLength: 4)
+                // Where the sound is, without having to open the tab.
+                if tab == .nowPlaying, player.current != nil {
+                    Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Chroma.current)
+                }
             }
-            .padding(.horizontal, 10).padding(.vertical, 7)
+            .padding(.horizontal, 10).padding(.vertical, 5)
             .background {
                 if selected {
                     // The pill is where the playing album's colour reaches the
@@ -302,7 +310,7 @@ struct Sidebar: View {
                 Text(pl.name).font(.callout).lineLimit(1)
                 Spacer()
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 10).padding(.vertical, 5)
             .background {
                 if selected {
                     // The pill is where the playing album's colour reaches the
@@ -355,12 +363,21 @@ struct MainArea: View {
                 .padding(.horizontal, 24)
                 .padding(.top, kTrafficLightStrip)
                 .padding(.bottom, 14)
+                // The separator only exists once something has scrolled beneath
+                // it — the standard macOS cue that the header is pinned.
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Surface.stroke)
+                        .frame(height: 1)
+                        .opacity(ui.contentScrolled ? 1 : 0)
+                }
             if !ui.debouncedSearch.isEmpty {
                 SearchResultsView()
             } else {
                 content
                     .id(ui.tab)
                     .transition(.opacity)
+                    .onChange(of: ui.tab) { _, _ in ui.contentScrolled = false }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -413,30 +430,49 @@ struct TopSearchField: View {
     @ObservedObject private var ui = UIState.shared
     @FocusState private var focused: Bool
     @State private var debounce: Task<Void, Never>?
+    /// Collapsed to its icon until asked for, so the header belongs to the page
+    /// title rather than to an empty 320pt pill.
+    @State private var expanded = false
+
+    private func expand() {
+        withAnimation(Motion.hover) { expanded = true }
+        focused = true
+    }
 
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("Search for music…", text: $ui.searchText)
-                .textFieldStyle(.plain)
-                .focused($focused)
-            if !ui.searchText.isEmpty {
-                Button {
-                    ui.searchText = ""; ui.debouncedSearch = ""; ui.searchVisible = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            if expanded {
+                TextField("Search for music…", text: $ui.searchText)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                if !ui.searchText.isEmpty {
+                    Button {
+                        ui.searchText = ""; ui.debouncedSearch = ""; ui.searchVisible = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, expanded ? 12 : 9)
         .padding(.vertical, 7)
-        .frame(maxWidth: 320)
+        .frame(width: expanded ? 300 : 32, alignment: .leading)
         .appGlass(in: .capsule)
+        .contentShape(Capsule())
+        .onTapGesture { if !expanded { expand() } }
+        .help(expanded ? "" : "Search your library (⌘F)")
+        .onChange(of: focused) { _, isFocused in
+            // Collapse again once it's done its job and is empty.
+            if !isFocused && ui.searchText.isEmpty {
+                withAnimation(Motion.hover) { expanded = false }
+            }
+        }
         .onChange(of: ui.searchText) { _, text in
             ui.searchVisible = !text.isEmpty
             debounce?.cancel()
@@ -446,7 +482,7 @@ struct TopSearchField: View {
                 ui.debouncedSearch = text.trimmingCharacters(in: .whitespaces)
             }
         }
-        .onChange(of: ui.searchFocusToken) { _, _ in focused = true }
+        .onChange(of: ui.searchFocusToken) { _, _ in expand() }
     }
 }
 
@@ -867,6 +903,7 @@ struct HomeView: View {
         // Recommendations arrive seconds after launch and add ~600pt in the
         // middle of the page; without an anchor the view slides off the top.
         .defaultScrollAnchor(.top)
+        .tracksContentScroll()
         .task(id: youtube.ready) { youtube.loadRecommendations() }
         .task(id: player.current?.id) { youtube.loadRecommendations() }
     }
@@ -2334,6 +2371,7 @@ struct AlbumsView: View {
                         .padding(.top, 18)
                         .padding(.bottom, 96)
                     }
+                    .tracksContentScroll()
                 }
                 .transition(.opacity)
                 .overlay(alignment: .bottom) {
