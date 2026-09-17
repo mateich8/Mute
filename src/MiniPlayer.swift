@@ -69,9 +69,10 @@ struct MiniPlayerView: View {
                 .animation(.easeInOut(duration: 0.6), value: player.current?.artworkFile)
 
             HStack(spacing: 12) {
-                ArtworkSquare(image: library.artwork(for: player.current), corner: 10,
+                ArtworkSquare(image: library.artwork(for: player.current), corner: Radius.art,
                               remote: player.current?.remoteArtworkURL,
-                              remoteFallback: player.current?.remoteArtworkFallbackURL)
+                              remoteFallback: player.current?.remoteArtworkFallbackURL,
+                              seed: player.current?.album)
                     .frame(width: 86, height: 86)
                     .scaleEffect(artScale)
                     .gesture(
@@ -127,7 +128,7 @@ struct MiniPlayerView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.14), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Surface.stroke, lineWidth: 1))
         .onHover { inside in
             hovering = inside
             if inside {

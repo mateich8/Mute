@@ -461,3 +461,47 @@ extension CoverCard where Accessory == EmptyView {
                   open: open, art: art) { EmptyView() }
     }
 }
+
+/// The one list-row treatment: padding, corner, the resting/hover/current fill,
+/// and the row-sized lift. The three row types in the app differ in what they
+/// put *in* a row — an ordinal, a thumbnail, a remove button — but there was no
+/// reason for them to differ in how the row itself behaves, and they did: 12pt
+/// of horizontal padding against 10, 7pt vertical against 6, a row corner
+/// against a cover corner, and three different rules for when a row tints.
+private struct MediaRowChrome: ViewModifier {
+    let isCurrent: Bool
+    let pressable: Bool
+    let onTap: () -> Void
+    let onHoverChange: (Bool) -> Void
+
+    @State private var hovered = false
+
+    private var fill: AnyShapeStyle {
+        if isCurrent { return AnyShapeStyle(Surface.active) }
+        return hovered ? AnyShapeStyle(Surface.hover) : AnyShapeStyle(.clear)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(fill, in: RoundedRectangle(cornerRadius: Radius.row))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .interactiveSurface(lift: Lift.row, pressable: pressable) { isHovering in
+                withAnimation(Motion.hover) { hovered = isHovering }
+                onHoverChange(isHovering)
+            }
+    }
+}
+
+extension View {
+    /// See `MediaRowChrome`. `pressable: false` is for rows that carry `.onDrag`.
+    func mediaRow(isCurrent: Bool = false,
+                  pressable: Bool = true,
+                  onTap: @escaping () -> Void,
+                  onHoverChange: @escaping (Bool) -> Void = { _ in }) -> some View {
+        modifier(MediaRowChrome(isCurrent: isCurrent, pressable: pressable,
+                                onTap: onTap, onHoverChange: onHoverChange))
+    }
+}

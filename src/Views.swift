@@ -722,10 +722,10 @@ struct ArtistsView: View {
             // instead of a hard seam) and the bottom (into the panel below).
             .mask(
                 LinearGradient(stops: [
-                    .init(color: .white.opacity(0.0), location: 0.0),
+                    .init(color: Surface.quiet, location: 0.0),
                     .init(color: .white, location: 0.16),
                     .init(color: .white, location: 0.74),
-                    .init(color: .white.opacity(0.0), location: 1.0),
+                    .init(color: Surface.quiet, location: 1.0),
                 ], startPoint: .top, endPoint: .bottom)
             )
 
@@ -829,7 +829,7 @@ struct ArtistAvatar: View {
     var body: some View {
         RemoteArtwork(url: remote, fallback: nil) { placeholder }
             .clipShape(Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.1), lineWidth: 1))
+            .overlay(Circle().strokeBorder(Surface.stroke, lineWidth: 1))
     }
 
     @ViewBuilder private var placeholder: some View {
@@ -1011,7 +1011,7 @@ struct HomeView: View {
             LinearGradient(colors: pick.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: pick.symbol)
                 .font(.system(size: size.symbolSize, weight: .bold))
-                .foregroundStyle(.white.opacity(0.16))
+                .foregroundStyle(Surface.active)
                 .offset(x: size.symbolOffset, y: size.fills ? 40 : 24)
             VStack(alignment: .leading, spacing: size.fills ? 6 : 4) {
                 Text(pick.kicker).font(.caption2.weight(.bold)).tracking(1.2).foregroundStyle(.white.opacity(0.85))
@@ -1036,7 +1036,7 @@ struct HomeView: View {
         .frame(width: size.fills ? nil : 300, height: size.height)
         .frame(maxWidth: size.fills ? .infinity : nil, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: corner))
-        .overlay { RoundedRectangle(cornerRadius: corner).strokeBorder(.white.opacity(0.10)) }
+        .overlay { RoundedRectangle(cornerRadius: corner).strokeBorder(Surface.stroke) }
         .shadow(color: .black.opacity(size.fills ? 0.35 : 0.25), radius: size.fills ? 18 : 10, y: size.fills ? 8 : 4)
     }
 
@@ -1287,7 +1287,7 @@ struct NewView: View {
                 }
                 .frame(maxWidth: .infinity).frame(height: 270)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.art))
-                .overlay { RoundedRectangle(cornerRadius: Radius.art).strokeBorder(.white.opacity(0.08)) }
+                .overlay { RoundedRectangle(cornerRadius: Radius.art).strokeBorder(Surface.stroke) }
                 .padding(.top, 3)
             }
         }
@@ -1328,7 +1328,7 @@ struct SidebarAvatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(.white.opacity(0.15)))
+        .overlay(Circle().strokeBorder(Surface.stroke))
     }
     private var initial: String { String(name.first.map(String.init)?.uppercased() ?? "U") }
 }
@@ -1387,7 +1387,7 @@ struct ProfileView: View {
                     Image(systemName: "camera.fill")
                         .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
                         .padding(6).background(.black.opacity(0.6), in: Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(0.2)))
+                        .overlay(Circle().strokeBorder(Surface.stroke))
                 }
             }
             .buttonStyle(.plain).help("Change photo")
@@ -1479,7 +1479,7 @@ struct ProfileView: View {
         ZStack(alignment: .topLeading) {
             LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: symbol).font(.system(size: 64, weight: .bold))
-                .foregroundStyle(.white.opacity(0.15)).offset(x: 90, y: 14)
+                .foregroundStyle(Surface.active).offset(x: 90, y: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Image(systemName: symbol).font(.callout).foregroundStyle(.white.opacity(0.9))
                 Spacer()
@@ -1545,7 +1545,7 @@ struct ProfileView: View {
                         Text(g.genre).font(.caption.weight(.medium)).frame(width: 90, alignment: .leading)
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                Capsule().fill(.white.opacity(0.08))
+                                Capsule().fill(Surface.base)
                                 Capsule().fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.6)],
                                                               startPoint: .leading, endPoint: .trailing))
                                     .frame(width: max(6, geo.size.width * g.fraction))
@@ -1583,7 +1583,7 @@ struct ProfileView: View {
         Button(action: action) {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: symbol).font(.system(size: 50, weight: .bold)).foregroundStyle(.white.opacity(0.16)).offset(x: 60, y: 12)
+                Image(systemName: symbol).font(.system(size: 50, weight: .bold)).foregroundStyle(Surface.active).offset(x: 60, y: 12)
                 VStack(alignment: .leading, spacing: 2) {
                     Image(systemName: symbol).font(.callout).foregroundStyle(.white)
                     Spacer()
@@ -1627,7 +1627,7 @@ struct ProfileView: View {
                 }
             }
             .padding(18)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.panel))
+            .background(Surface.quiet, in: RoundedRectangle(cornerRadius: Radius.panel))
             .padding(.horizontal, 28)
         }
     }
@@ -1651,7 +1651,7 @@ struct ProfileView: View {
                 }
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.08))
+                        Capsule().fill(Surface.base)
                         Capsule().fill(LinearGradient(colors: [Color(red: 0.95, green: 0.6, blue: 0.15), Color(red: 0.9, green: 0.3, blue: 0.5)],
                                                       startPoint: .leading, endPoint: .trailing))
                             .frame(width: max(8, geo.size.width * lvl.fraction))
@@ -1659,7 +1659,7 @@ struct ProfileView: View {
                 }.frame(height: 12)
             }
             .padding(18)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.panel))
+            .background(Surface.quiet, in: RoundedRectangle(cornerRadius: Radius.panel))
             .padding(.horizontal, 28)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 14) {
@@ -1669,7 +1669,7 @@ struct ProfileView: View {
                             .font(.title3)
                             .foregroundStyle(badge.earned ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
                             .frame(width: 38, height: 38)
-                            .background(badge.earned ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.white.opacity(0.05)), in: Circle())
+                            .background(badge.earned ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(Surface.quiet), in: Circle())
                         VStack(alignment: .leading, spacing: 1) {
                             Text(badge.title).font(.caption.weight(.semibold)).lineLimit(1)
                             Text(badge.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
@@ -1677,7 +1677,7 @@ struct ProfileView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(10)
-                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.art))
+                    .background(Surface.quiet, in: RoundedRectangle(cornerRadius: Radius.art))
                     .opacity(badge.earned ? 1 : 0.5)
                 }
             }
@@ -1715,7 +1715,7 @@ struct FlowChips: View {
                     Text(item).font(.caption.weight(.medium))
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .frame(maxWidth: .infinity)
-                        .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.white.opacity(0.06)),
+                        .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Surface.base),
                                     in: Capsule())
                         .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                 }
@@ -1828,7 +1828,7 @@ struct NowPlayingView: View {
                                     .font(.system(size: 8, weight: .bold))
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 2)
-                                    .background(.white.opacity(0.15), in: .capsule)
+                                    .background(Surface.active, in: .capsule)
                                     .help("Device sample rate matched to the file — untouched signal path")
                             }
                             let liked = library.isFavorite(path: track.path)
@@ -2655,8 +2655,10 @@ struct AlbumDetailView: View {
                 .frame(width: 130, height: 130)
                 .matchedIfPresent("album-\(album.id)", in: namespace)
             VStack(alignment: .leading, spacing: 6) {
+                MetaLine(text: "Album")
                 Text(album.name)
-                    .font(.title2.weight(.semibold))
+                    .font(TypeScale.section)
+                    .tracking(-0.6)
                     .lineLimit(2)
                 Button {
                     let name = album.artist
@@ -2676,9 +2678,8 @@ struct AlbumDetailView: View {
                 .onHover { artistHover = $0 }
                 .help("Go to \(album.artist)")
                 HStack(spacing: 14) {
-                    Text("\(album.tracks.count) songs · \(Int(album.tracks.reduce(0) { $0 + $1.duration } / 60)) min")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    MetaLine(text: "\(album.tracks.count) song\(album.tracks.count == 1 ? "" : "s") · \(Int(album.tracks.reduce(0) { $0 + $1.duration } / 60)) min")
+                        .fixedSize()
                     PlayButton(kind: .prominent) {
                         Player.shared.play(queue: album.tracks, at: 0)
                     }
@@ -2931,11 +2932,10 @@ struct SettingsSheet: View {
 
     private var categoryNav: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("MUTE")
-                .font(.system(size: 10, weight: .semibold)).tracking(0.8)
-                .foregroundStyle(.tertiary)
+            MetaLine(text: "Mute")
             Text("Settings")
-                .font(.title3.weight(.bold))
+                .font(TypeScale.page)
+                .tracking(-0.4)
                 .padding(.bottom, 12)
             ForEach(SettingsCategory.allCases) { cat in
                 Button { category = cat } label: {
@@ -2944,9 +2944,16 @@ struct SettingsSheet: View {
                         Text(cat.label).font(.callout)
                         Spacer()
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(category == cat ? AnyShapeStyle(.white.opacity(0.13)) : AnyShapeStyle(.clear),
-                                in: RoundedRectangle(cornerRadius: Radius.chip))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background {
+                        // Same pill as the main sidebar, same accent.
+                        if category == cat {
+                            RoundedRectangle(cornerRadius: Radius.chip)
+                                .fill(Chroma.current.opacity(0.24))
+                                .overlay(RoundedRectangle(cornerRadius: Radius.chip)
+                                    .strokeBorder(Chroma.current.opacity(0.40), lineWidth: 1))
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2964,7 +2971,7 @@ struct SettingsSheet: View {
     }
 
     private func panelHeader(_ title: String) -> some View {
-        Text(title).font(.title3.weight(.semibold))
+        Text(title).font(TypeScale.section).tracking(-0.6)
     }
 
     private func caption(_ text: String) -> some View {
@@ -3220,8 +3227,8 @@ struct SearchBarView: View {
                             .font(.caption.weight(.medium))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(ui.searchScope == scope ? AnyShapeStyle(.white.opacity(0.18))
-                                                                : AnyShapeStyle(.white.opacity(0.05)),
+                            .background(ui.searchScope == scope ? AnyShapeStyle(Surface.active)
+                                                                : AnyShapeStyle(Surface.quiet),
                                         in: .capsule)
                     }
                     .buttonStyle(.plain)
@@ -3468,7 +3475,7 @@ struct SearchResultsView: View {
                 .font(.caption2.weight(.semibold).monospacedDigit())
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
-                .background(.white.opacity(0.12), in: .capsule)
+                .background(Surface.active, in: .capsule)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 28)
@@ -3749,10 +3756,10 @@ struct YTArtistView: View {
                 )
                 .mask(
                     LinearGradient(stops: [
-                        .init(color: .white.opacity(0.0), location: 0.0),
+                        .init(color: Surface.quiet, location: 0.0),
                         .init(color: .white, location: 0.16),
                         .init(color: .white, location: 0.72),
-                        .init(color: .white.opacity(0.0), location: 1.0),
+                        .init(color: Surface.quiet, location: 1.0),
                     ], startPoint: .top, endPoint: .bottom)
                 )
             HStack(alignment: .bottom, spacing: 16) {
@@ -3903,12 +3910,12 @@ struct YTArt: View {
         AsyncImage(url: url) { image in
             image.resizable().aspectRatio(contentMode: .fill)
         } placeholder: {
-            Rectangle().fill(.white.opacity(0.06))
+            Rectangle().fill(Surface.base)
                 .overlay(Image(systemName: placeholder).font(.title3).foregroundStyle(.secondary))
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: corner))
-        .overlay { RoundedRectangle(cornerRadius: corner).strokeBorder(.white.opacity(0.08)) }
+        .overlay { RoundedRectangle(cornerRadius: corner).strokeBorder(Surface.stroke) }
     }
 }
 
@@ -3992,7 +3999,7 @@ struct YTResultRow: View {
                 Text("\(ordinal)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.tertiary)
-                    .frame(width: 26, alignment: .center)
+                    .frame(width: 24, alignment: .center)
             } else {
                 thumbnail
             }
@@ -4018,25 +4025,19 @@ struct YTResultRow: View {
             Spacer()
             controls
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: Radius.art))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onPlay)
-        .interactiveSurface(lift: Lift.row) { h in withAnimation(Motion.hover) { hovered = h } }
+        .mediaRow(onTap: onPlay) { hovered = $0 }
     }
 
     private var thumbnail: some View {
         AsyncImage(url: result.thumbnailURL) { image in
             image.resizable().aspectRatio(contentMode: .fill)
         } placeholder: {
-            Rectangle().fill(.white.opacity(0.06))
+            Rectangle().fill(Surface.base)
                 .overlay(Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary))
         }
         .frame(width: 46, height: 46)
         .clipShape(RoundedRectangle(cornerRadius: Radius.chip))
-        .overlay { RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(.white.opacity(0.08)) }
+        .overlay { RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(Surface.stroke) }
     }
 
     @ViewBuilder private var controls: some View {
@@ -4119,7 +4120,7 @@ struct CircularProgress: View {
     let value: Double
     var body: some View {
         ZStack {
-            Circle().stroke(.white.opacity(0.15), lineWidth: 2.5)
+            Circle().stroke(Surface.stroke, lineWidth: 2.5)
             Circle()
                 .trim(from: 0, to: max(0.02, min(1, value)))
                 .stroke(.cyan, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
@@ -4169,7 +4170,7 @@ struct ZenRing: View {
 
     var body: some View {
         ZStack {
-            Circle().stroke(.white.opacity(0.12), lineWidth: 5)
+            Circle().stroke(Surface.stroke, lineWidth: 5)
             Circle()
                 .trim(from: 0, to: player.fraction)
                 .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -4693,7 +4694,7 @@ struct PlaylistCover: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: Radius.art))
-        .overlay(RoundedRectangle(cornerRadius: Radius.art).strokeBorder(.white.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.art).strokeBorder(Surface.stroke))
     }
 
     private func tile(_ t: Track, _ size: CGFloat) -> some View {
@@ -4721,7 +4722,7 @@ struct FavoritesCard: View {
                 }
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.art))
-                .overlay(RoundedRectangle(cornerRadius: Radius.art).strokeBorder(.white.opacity(0.10)))
+                .overlay(RoundedRectangle(cornerRadius: Radius.art).strokeBorder(Surface.stroke))
                 Text("Favourites")
                     .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                 Text("\(count) song\(count == 1 ? "" : "s")")
@@ -4818,7 +4819,7 @@ struct PlaylistDetailView: View {
                         .focused($nameFocused)
                         .frame(maxWidth: 320)
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(nameFocused ? AnyShapeStyle(.white.opacity(0.08)) : AnyShapeStyle(.clear),
+                        .background(nameFocused ? AnyShapeStyle(Surface.base) : AnyShapeStyle(.clear),
                                     in: RoundedRectangle(cornerRadius: Radius.chip))
                         .onSubmit { library.renamePlaylist(playlist.id, to: name); nameFocused = false }
                     Button { nameFocused = true } label: {
@@ -5144,17 +5145,8 @@ struct TrackRow<MenuContent: View>: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(isCurrent ? AnyShapeStyle(.white.opacity(0.12))
-                              : (hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear)),
-                    in: RoundedRectangle(cornerRadius: Radius.row))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: play)
+        .mediaRow(isCurrent: isCurrent, pressable: false, onTap: play) { hovered = $0 }
         .onDrag { NSItemProvider(object: track.id.uuidString as NSString) }
-        .interactiveSurface(lift: Lift.row, pressable: false) { h in
-            withAnimation(Motion.hover) { hovered = h }
-        }
         .contextMenu { menu() }
     }
 }
@@ -5168,11 +5160,11 @@ struct QueueRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: isCurrent ? (isPlaying ? "speaker.wave.2.fill" : "speaker.fill") : "music.note")
                 .font(.caption)
                 .foregroundStyle(isCurrent ? .primary : .secondary)
-                .frame(width: 16)
+                .frame(width: 24)
             VStack(alignment: .leading, spacing: 1) {
                 Text(track.title)
                     .font(.callout.weight(isCurrent ? .semibold : .regular))
@@ -5199,13 +5191,7 @@ struct QueueRow: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(isCurrent ? AnyShapeStyle(.white.opacity(0.12)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: Radius.row))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: play)
-        .interactiveSurface(lift: Lift.row) { h in withAnimation(Motion.hover) { hovered = h } }
+        .mediaRow(isCurrent: isCurrent, onTap: play) { hovered = $0 }
     }
 }
 
@@ -5248,7 +5234,7 @@ struct MiniBar: View {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 15))
                                 .frame(width: 34, height: 34)
-                                .background(.white.opacity(0.12), in: .circle)
+                                .background(Surface.active, in: .circle)
                                 .contentShape(Circle())
                                 .contentTransition(.symbolEffect(.replace))
                         }
@@ -5304,7 +5290,7 @@ struct MiniProgress: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.15))
+                Capsule().fill(Surface.active)
                 Capsule()
                     .fill(.white.opacity(hovered ? 0.95 : 0.75))
                     .frame(width: max(2, geo.size.width * player.fraction))
@@ -5376,7 +5362,7 @@ struct ArtworkSquare: View {
             .clipShape(RoundedRectangle(cornerRadius: corner))
             .overlay(
                 RoundedRectangle(cornerRadius: corner)
-                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(Surface.stroke, lineWidth: 1)
             )
     }
 
@@ -5420,7 +5406,7 @@ struct ArtworkCard: View {
             .clipShape(RoundedRectangle(cornerRadius: Radius.sheet))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.sheet)
-                    .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                    .strokeBorder(Surface.stroke, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.45), radius: 30, y: 14)
     }
@@ -5466,7 +5452,7 @@ struct ScrubBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.18))
+                Capsule().fill(Surface.active)
                 Capsule()
                     .fill(Chroma.current)
                     .frame(width: max(hovered ? 7 : 5, geo.size.width * fraction))
