@@ -302,3 +302,62 @@ extension View {
         }
     }
 }
+
+/// The one empty state in the app. Every screen used to roll its own — three
+/// different icon sizes, three type pairings, two of them inside a glass card
+/// and two not — which is the sort of thing that makes a set of screens read as
+/// unrelated features rather than one program.
+struct EmptyState: View {
+    let icon: String
+    let title: String
+    var message: String? = nil
+    /// Screens that sit inside a scroll view want the plain form; a full-page
+    /// empty state gets the glass card.
+    var framed: Bool = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(title).font(.title3.weight(.medium))
+            if let message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, framed ? 48 : 70)
+        .padding(.horizontal, framed ? 56 : 24)
+        .modifier(EmptyStateFrame(framed: framed))
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct EmptyStateFrame: ViewModifier {
+    let framed: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if framed {
+            content.appGlass(in: .rect(cornerRadius: Radius.sheet))
+        } else {
+            content
+        }
+    }
+}
+
+/// The metadata strip under a page title — "34 songs · 138 min". Same eyebrow
+/// treatment as a section's kicker, so counts read as labels everywhere.
+struct MetaLine: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(TypeScale.eyebrow)
+            .tracking(1.4)
+            .foregroundStyle(.tertiary)
+            // A ScrollView centres its content, which would leave this floating
+            // in the middle of the page instead of sitting under the title.
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

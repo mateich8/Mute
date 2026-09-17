@@ -498,14 +498,13 @@ struct AllSongsView: View {
         }
         ScrollView {
             if tracks.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "music.note").font(.largeTitle).foregroundStyle(.secondary)
-                    Text("Your library is empty").font(.headline)
-                    Text("Add music with the + button, or drag files in.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity).padding(.vertical, 90)
+                EmptyState(icon: "music.note",
+                           title: "Your library is empty",
+                           message: "Add music with the + button, or drag files in.")
             } else {
+                MetaLine(text: "\(tracks.count) song\(tracks.count == 1 ? "" : "s") · \(Int(tracks.reduce(0) { $0 + $1.duration } / 60)) min")
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 10)
                 LazyVStack(spacing: 2) {
                     ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                         TrackRow(track: track, ordinal: index + 1) {
@@ -528,6 +527,7 @@ struct AllSongsView: View {
                 .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 96)
             }
         }
+        .tracksContentScroll()
     }
 }
 
@@ -572,12 +572,13 @@ struct ArtistsView: View {
         let items = artists
         return ScrollView {
             if items.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "music.mic").font(.largeTitle).foregroundStyle(.secondary)
-                    Text("No artists yet").font(.headline)
-                }
-                .frame(maxWidth: .infinity).padding(.vertical, 90)
+                EmptyState(icon: "music.mic",
+                           title: "No artists yet",
+                           message: "Artists appear once your tracks carry artist tags.")
             } else {
+                MetaLine(text: "\(items.count) artist\(items.count == 1 ? "" : "s")")
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 12)
                 LazyVGrid(columns: columns, spacing: 24) {
                     ForEach(items) { artist in
                         Button {
@@ -598,6 +599,7 @@ struct ArtistsView: View {
                 .padding(24).padding(.bottom, 96)
             }
         }
+        .tracksContentScroll()
     }
 
     private func detail(_ entry: ArtistEntry) -> some View {
@@ -1168,14 +1170,11 @@ struct HomeView: View {
     private var emptyState: some View {
         HStack {
             Spacer()
-            VStack(spacing: 10) {
-                Image(systemName: "sparkles").font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
-                Text("Nothing here yet").font(.headline)
-                Text("Play some music and recommendations, history and stats will appear.")
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-            .padding(.vertical, 60).padding(.horizontal, 48)
-            .appGlass(in: .rect(cornerRadius: 26))
+            EmptyState(icon: "sparkles",
+                       title: "Nothing here yet",
+                       message: "Play some music and recommendations, history and stats will appear.",
+                       framed: true)
+                .frame(maxWidth: 420)
             Spacer()
         }
         .padding(.top, 40)
@@ -1293,8 +1292,8 @@ struct NewView: View {
                         .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
                 }
                 .frame(maxWidth: .infinity).frame(height: 270)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)) }
+                .clipShape(RoundedRectangle(cornerRadius: Radius.art))
+                .overlay { RoundedRectangle(cornerRadius: Radius.art).strokeBorder(.white.opacity(0.08)) }
                 .padding(.top, 3)
             }
         }
@@ -1373,6 +1372,7 @@ struct ProfileView: View {
             .padding(.top, 12)
             .padding(.bottom, 96)
         }
+        .tracksContentScroll()
         .task(id: library.history.count) {
             genres.ensure(artists: engine.topArtists(in: .all, limit: 20).map(\.name))
         }
@@ -1495,7 +1495,7 @@ struct ProfileView: View {
             .padding(14)
         }
         .frame(height: 104).frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.panel))
     }
 
     private var topArtistsColumn: some View {
@@ -1598,7 +1598,7 @@ struct ProfileView: View {
                 }.padding(12)
             }
             .frame(height: 96).frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.panel))
         }
         .buttonStyle(.plain)
     }
@@ -1633,7 +1633,7 @@ struct ProfileView: View {
                 }
             }
             .padding(18)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.panel))
             .padding(.horizontal, 28)
         }
     }
@@ -1665,7 +1665,7 @@ struct ProfileView: View {
                 }.frame(height: 12)
             }
             .padding(18)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.panel))
             .padding(.horizontal, 28)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 14) {
@@ -1683,7 +1683,7 @@ struct ProfileView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(10)
-                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: Radius.art))
                     .opacity(badge.earned ? 1 : 0.5)
                 }
             }
@@ -1873,7 +1873,7 @@ struct NowPlayingView: View {
                 }
                 .padding(.vertical, 48)
                 .padding(.horizontal, 64)
-                .appGlass(in: .rect(cornerRadius: 26))
+                .appGlass(in: .rect(cornerRadius: Radius.sheet))
             }
             Spacer(minLength: 24)
         }
@@ -1940,8 +1940,8 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-        .appGlass(in: .rect(cornerRadius: 18))
+        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.panel))
+        .appGlass(in: .rect(cornerRadius: Radius.panel))
     }
 
     private func upNextRow(_ track: Track, index: Int) -> some View {
@@ -1992,8 +1992,8 @@ struct NowPlayingView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-        .appGlass(in: .rect(cornerRadius: 18))
+        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.panel))
+        .appGlass(in: .rect(cornerRadius: Radius.panel))
     }
 
     private func openExternal(_ urlString: String) {
@@ -2299,19 +2299,11 @@ struct AlbumsView: View {
             } else if library.tracks.isEmpty {
                 VStack {
                     Spacer()
-                    VStack(spacing: 14) {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 44, weight: .light))
-                            .foregroundStyle(.secondary)
-                        Text("Drop music here")
-                            .font(.title3.weight(.medium))
-                        Text("or press + to add files or folders")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 48)
-                    .padding(.horizontal, 64)
-                    .appGlass(in: .rect(cornerRadius: 26))
+                    EmptyState(icon: "music.note",
+                               title: "Drop music here",
+                               message: "or press + to add files or folders",
+                               framed: true)
+                        .fixedSize()
                     Spacer()
                 }
             } else {
@@ -2997,7 +2989,7 @@ struct SettingsSheet: View {
                     }
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .background(category == cat ? AnyShapeStyle(.white.opacity(0.13)) : AnyShapeStyle(.clear),
-                                in: RoundedRectangle(cornerRadius: 8))
+                                in: RoundedRectangle(cornerRadius: Radius.chip))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -3647,7 +3639,7 @@ struct YouTubeView: View {
                 }
                 .frame(height: 130)
                 .padding(10)
-                .appGlass(in: .rect(cornerRadius: 12))
+                .appGlass(in: .rect(cornerRadius: Radius.art))
             } else if let detail = youtube.missingDetail {
                 Text("Missing: \(detail).")
                     .font(.caption2)
@@ -3721,6 +3713,7 @@ struct YTSearchResultsView: View {
             .padding(.top, 16)
             .padding(.bottom, 96)
         }
+        .tracksContentScroll()
     }
 }
 
@@ -3980,18 +3973,19 @@ struct YTArt: View {
     }
 }
 
+/// The YouTube screens used to carry their own header style. They use the same
+/// one as the rest of the app now; only the trailing count is theirs.
 struct YTSectionHeader: View {
     let title: String
     var count: Int? = nil
     var body: some View {
-        HStack(spacing: 8) {
-            Text(title).font(.headline)
+        SectionHeader(title: title, accent: Chroma.current) {
             if let count {
                 Text("\(count)")
                     .font(.caption2.weight(.semibold).monospacedDigit())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(.white.opacity(0.12), in: .capsule)
+                    .background(Surface.stroke, in: .capsule)
                     .foregroundStyle(.secondary)
             }
         }
@@ -4088,7 +4082,7 @@ struct YTResultRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 12))
+                    in: RoundedRectangle(cornerRadius: Radius.art))
         .contentShape(Rectangle())
         .onTapGesture(perform: onPlay)
         .interactiveSurface(lift: Lift.row) { h in withAnimation(Motion.hover) { hovered = h } }
@@ -4102,8 +4096,8 @@ struct YTResultRow: View {
                 .overlay(Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary))
         }
         .frame(width: 46, height: 46)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.08)) }
+        .clipShape(RoundedRectangle(cornerRadius: Radius.chip))
+        .overlay { RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(.white.opacity(0.08)) }
     }
 
     @ViewBuilder private var controls: some View {
@@ -4664,7 +4658,7 @@ struct PlaylistsView: View {
                         }
                         .padding(.vertical, 40)
                         .padding(.horizontal, 48)
-                        .appGlass(in: .rect(cornerRadius: 26))
+                        .appGlass(in: .rect(cornerRadius: Radius.sheet))
                         Spacer()
                     }
                     Spacer()
@@ -4682,6 +4676,7 @@ struct PlaylistsView: View {
                         .padding(.top, 4)
                         .padding(.bottom, 96)
                     }
+                    .tracksContentScroll()
                 }
             }
         }
@@ -4758,8 +4753,8 @@ struct PlaylistCover: View {
             .frame(width: s, height: s)
         }
         .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.art))
+        .overlay(RoundedRectangle(cornerRadius: Radius.art).strokeBorder(.white.opacity(0.08)))
     }
 
     private func tile(_ t: Track, _ size: CGFloat) -> some View {
@@ -4786,8 +4781,8 @@ struct FavoritesCard: View {
                         .foregroundStyle(.white.opacity(0.9))
                 }
                 .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.10)))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.art))
+                .overlay(RoundedRectangle(cornerRadius: Radius.art).strokeBorder(.white.opacity(0.10)))
                 Text("Favourites")
                     .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                 Text("\(count) song\(count == 1 ? "" : "s")")
@@ -4836,7 +4831,7 @@ struct PlaylistDetailView: View {
                         .buttonStyle(.glassProminent)
                     }
                     .padding(.vertical, 44).padding(.horizontal, 56)
-                    .appGlass(in: .rect(cornerRadius: 26))
+                    .appGlass(in: .rect(cornerRadius: Radius.sheet))
                     Spacer()
                 }
                 Spacer()
@@ -4885,7 +4880,7 @@ struct PlaylistDetailView: View {
                         .frame(maxWidth: 320)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(nameFocused ? AnyShapeStyle(.white.opacity(0.08)) : AnyShapeStyle(.clear),
-                                    in: RoundedRectangle(cornerRadius: 7))
+                                    in: RoundedRectangle(cornerRadius: Radius.chip))
                         .onSubmit { library.renamePlaylist(playlist.id, to: name); nameFocused = false }
                     Button { nameFocused = true } label: {
                         Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary)
@@ -5220,7 +5215,7 @@ struct TrackRow<MenuContent: View>: View {
         .padding(.vertical, 7)
         .background(isCurrent ? AnyShapeStyle(.white.opacity(0.12))
                               : (hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear)),
-                    in: RoundedRectangle(cornerRadius: 10))
+                    in: RoundedRectangle(cornerRadius: Radius.row))
         .contentShape(Rectangle())
         .onTapGesture(perform: play)
         .onDrag { NSItemProvider(object: track.id.uuidString as NSString) }
@@ -5274,7 +5269,7 @@ struct QueueRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(isCurrent ? AnyShapeStyle(.white.opacity(0.12)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 10))
+                    in: RoundedRectangle(cornerRadius: Radius.row))
         .contentShape(Rectangle())
         .onTapGesture(perform: play)
         .interactiveSurface(lift: Lift.row) { h in withAnimation(Motion.hover) { hovered = h } }
@@ -5362,7 +5357,7 @@ struct MiniBar: View {
             .padding(.top, 10)
             .padding(.bottom, 9)
             .frame(width: 470)
-            .appGlass(in: .rect(cornerRadius: 26), interactive: true)
+            .appGlass(in: .rect(cornerRadius: Radius.sheet), interactive: true)
         }
     }
 }
@@ -5489,9 +5484,9 @@ struct ArtworkCard: View {
                     placeholder
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sheet))
             .overlay(
-                RoundedRectangle(cornerRadius: 24)
+                RoundedRectangle(cornerRadius: Radius.sheet)
                     .strokeBorder(.white.opacity(0.15), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.45), radius: 30, y: 14)
