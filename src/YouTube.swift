@@ -1115,7 +1115,7 @@ final class YouTubeService: ObservableObject {
                 let venv = Self.appSupportDir.appendingPathComponent("pyenv").path
                 _ = await runStreaming("/usr/bin/python3", ["-m", "venv", venv]) { [weak self] c in self?.appendLog(c) }
                 let pip = Self.appSupportDir.appendingPathComponent("pyenv/bin/pip").path
-                _ = await runStreaming(pip, ["install", "--upgrade", "ytmusicapi", "qobuz-dl"]) { [weak self] c in self?.appendLog(c) }
+                _ = await runStreaming(pip, ["install", "--upgrade", "ytmusicapi"]) { [weak self] c in self?.appendLog(c) }
             }
             Self.ensureHelper()
             appendLog("\n✓ Setup complete.")

@@ -3,7 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum Tab: String, CaseIterable, Identifiable {
-    case home, new, nowPlaying, songs, albums, artists, playlists, youtube, qobuz, profile
+    case home, new, nowPlaying, songs, albums, artists, playlists, youtube, profile
     var id: String { rawValue }
 
     var icon: String {
@@ -16,7 +16,6 @@ enum Tab: String, CaseIterable, Identifiable {
         case .artists: return "music.mic"
         case .playlists: return "music.note.list"
         case .youtube: return "play.rectangle.fill"
-        case .qobuz: return "hifispeaker.fill"
         case .profile: return "person.crop.circle"
         }
     }
@@ -31,7 +30,6 @@ enum Tab: String, CaseIterable, Identifiable {
         case .artists: return "Artists"
         case .playlists: return "Playlists"
         case .youtube: return "YouTube"
-        case .qobuz: return "Qobuz"
         case .profile: return "Profile"
         }
     }
@@ -185,8 +183,7 @@ struct Sidebar: View {
     @Namespace private var navNS
 
     private var librarySections: [Tab] {
-        var sections: [Tab] = [.home, .new, .nowPlaying, .songs, .albums, .artists, .playlists]
-        if settings.qobuzEnabled { sections.append(.qobuz) }
+        let sections: [Tab] = [.home, .new, .nowPlaying, .songs, .albums, .artists, .playlists]
         return sections
     }
 
@@ -335,7 +332,6 @@ struct MainArea: View {
         case .artists: return "Artists"
         case .playlists: return "Playlists"
         case .youtube: return "YouTube"
-        case .qobuz: return "Qobuz"
         case .profile: return "Profile"
         }
     }
@@ -370,9 +366,9 @@ struct MainArea: View {
                 .lineLimit(1)
             if library.importing { ProgressView().controlSize(.small) }
             Spacer(minLength: 12)
-            // The YouTube/Qobuz tabs have their own dedicated search fields, so
-            // the global one would just be redundant clutter there.
-            if ui.tab != .youtube && ui.tab != .qobuz { TopSearchField() }
+            // The YouTube tab has its own dedicated search field, so the
+            // global one would just be redundant clutter there.
+            if ui.tab != .youtube { TopSearchField() }
             Button { showImporter = true } label: {
                 Image(systemName: "plus").frame(width: 18, height: 18)
             }
@@ -390,7 +386,6 @@ struct MainArea: View {
         case .artists: ArtistsView()
         case .playlists: PlaylistsView()
         case .youtube: YouTubeView()
-        case .qobuz: QobuzView()
         case .profile: ProfileView()
         }
     }
@@ -2672,7 +2667,7 @@ struct EditAlbumSheet: View {
 // MARK: - Settings sheet
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case appearance, playback, equalizer, library, youtube, qobuz
+    case appearance, playback, equalizer, library, youtube
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -2681,7 +2676,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .equalizer: return "Equalizer"
         case .library: return "Library"
         case .youtube: return "YouTube Music"
-        case .qobuz: return "Qobuz"
         }
     }
     var icon: String {
@@ -2691,7 +2685,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .equalizer: return "waveform"
         case .library: return "folder"
         case .youtube: return "play.rectangle.fill"
-        case .qobuz: return "hifispeaker.fill"
         }
     }
 }
@@ -2700,7 +2693,7 @@ struct SettingsSheet: View {
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var watcher = FolderWatcher.shared
     @ObservedObject private var youtube = YouTubeService.shared
-    @ObservedObject private var qobuz = QobuzService.shared
+    @ObservedObject private var library = Library.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showFolderPicker = false
     @State private var category: SettingsCategory = .appearance
@@ -2783,85 +2776,6 @@ struct SettingsSheet: View {
         }
     }
 
-    @ViewBuilder private var qobuzSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Qobuz")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { settings.qobuzEnabled },
-                    set: { on in
-                        settings.qobuzEnabled = on
-                        if !on, UIState.shared.tab == .qobuz { UIState.shared.tab = .albums }
-                    }))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .labelsHidden()
-            }
-            Text("Adds a Qobuz tab to search and download hi-res music with your own Qobuz subscription (downloads require a paid plan).")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if settings.qobuzEnabled {
-                if !qobuz.moduleReady {
-                    if qobuz.installing {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Installing qobuz-dl…").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    } else {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.caption2).foregroundStyle(.orange)
-                            Text("qobuz-dl isn’t installed yet.")
-                                .font(.caption2).foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Install") { qobuz.installModule() }
-                                .buttonStyle(.glass).controlSize(.small)
-                        }
-                    }
-                }
-
-                Divider().opacity(0.15)
-                Text("Account").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                TextField("Email", text: $settings.qobuzEmail)
-                    .textFieldStyle(.roundedBorder).controlSize(.small)
-                SecureField("Password", text: $settings.qobuzPassword)
-                    .textFieldStyle(.roundedBorder).controlSize(.small)
-                Picker("Download quality", selection: $settings.qobuzQuality) {
-                    Text("MP3 320").tag(5)
-                    Text("CD · FLAC 16-bit").tag(6)
-                    Text("Hi-Res · FLAC 24-bit ≤96 kHz").tag(7)
-                    Text("Hi-Res · FLAC 24-bit >96 kHz").tag(27)
-                }
-                .font(.caption)
-
-                HStack(spacing: 8) {
-                    Button("Test Connection") { qobuz.checkAccount() }
-                        .buttonStyle(.glass).controlSize(.small)
-                        .disabled(!qobuz.ready || qobuz.checking)
-                    if qobuz.checking {
-                        ProgressView().controlSize(.small)
-                    } else if let e = qobuz.accountError {
-                        if e.isEmpty {
-                            Label(qobuz.accountLabel?.isEmpty == false ? "Connected · \(qobuz.accountLabel!)" : "Connected",
-                                  systemImage: "checkmark.seal.fill")
-                                .font(.caption2).foregroundStyle(.green)
-                        } else {
-                            Text(e).font(.caption2).foregroundStyle(.orange).lineLimit(2)
-                        }
-                    }
-                }
-                Text("Downloads saved to ~/Music/Mute/Qobuz and imported into your library, fully tagged with cover art.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             categoryNav
@@ -2874,7 +2788,6 @@ struct SettingsSheet: View {
                     case .equalizer: equalizerPanel
                     case .library: libraryPanel
                     case .youtube: youtubeSection
-                    case .qobuz: qobuzSection
                     }
                 }
                 .padding(24)
@@ -3930,268 +3843,6 @@ struct YTLoading: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Qobuz (hi-res search + downloads)
-
-struct QobuzView: View {
-    @ObservedObject private var qobuz = QobuzService.shared
-    @ObservedObject private var settings = Settings.shared
-    @FocusState private var searchFocused: Bool
-
-    private var qualityLabel: String {
-        switch settings.qobuzQuality {
-        case 5: return "MP3 320"
-        case 7: return "FLAC 24-bit ≤96 kHz"
-        case 27: return "FLAC 24-bit >96 kHz"
-        default: return "FLAC 16-bit CD"
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            searchHeader
-            if !qobuz.moduleReady {
-                setupCard(icon: "shippingbox",
-                          title: "qobuz-dl isn’t installed",
-                          message: "Install the Qobuz tool into the app’s music toolkit to search and download.",
-                          buttonTitle: qobuz.installing ? "Installing…" : "Install",
-                          busy: qobuz.installing) { qobuz.installModule() }
-            } else if !qobuz.configured {
-                setupCard(icon: "person.badge.key",
-                          title: "Connect your Qobuz account",
-                          message: "Qobuz search and downloads use your own subscription. Add your email and password in Settings.",
-                          buttonTitle: "Open Settings", busy: false) {
-                    NotificationCenter.default.post(name: .openSettings, object: nil)
-                }
-            } else if qobuz.searching {
-                YTLoading()
-            } else if let error = qobuz.searchError {
-                YTNote(text: error, icon: "exclamationmark.triangle")
-                Spacer(minLength: 0)
-            } else if qobuz.albums.isEmpty && qobuz.tracks.isEmpty {
-                YTNote(text: "Search Qobuz for albums and tracks —\ndownloads come in \(qualityLabel).",
-                       icon: "hifispeaker")
-                Spacer(minLength: 0)
-            } else {
-                results
-            }
-        }
-        .padding(.top, 12)
-    }
-
-    private var searchHeader: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                TextField("Search artists, albums and songs on Qobuz", text: $qobuz.query)
-                    .textFieldStyle(.plain)
-                    .font(.callout)
-                    .focused($searchFocused)
-                    .onSubmit { qobuz.search() }
-                if qobuz.searching {
-                    ProgressView().controlSize(.small)
-                } else if !qobuz.query.isEmpty {
-                    Button { qobuz.query = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .appGlass(in: .capsule)
-
-            HStack(spacing: 6) {
-                Label("Hi-Res", systemImage: "waveform.badge.magnifyingglass")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.cyan)
-                Spacer()
-                Text("Downloads in \(qualityLabel) · saved to your library")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
-        .onAppear { searchFocused = true }
-    }
-
-    private func setupCard(icon: String, title: String, message: String,
-                           buttonTitle: String, busy: Bool, action: @escaping () -> Void) -> some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: icon).font(.system(size: 34, weight: .light)).foregroundStyle(.secondary)
-            Text(title).font(.headline)
-            Text(message)
-                .font(.caption).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).frame(maxWidth: 360)
-            Button(action: action) {
-                HStack(spacing: 6) {
-                    if busy { ProgressView().controlSize(.small) }
-                    Text(buttonTitle)
-                }
-            }
-            .buttonStyle(.glassProminent)
-            .disabled(busy)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var results: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                if !qobuz.albums.isEmpty {
-                    YTSectionHeader(title: "Albums", count: qobuz.albums.count)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 18) {
-                            ForEach(qobuz.albums) { QBAlbumCard(album: $0) }
-                        }
-                        .padding(.horizontal, 24)
-                    }
-                }
-                if !qobuz.tracks.isEmpty {
-                    YTSectionHeader(title: "Tracks", count: qobuz.tracks.count)
-                    LazyVStack(spacing: 3) {
-                        ForEach(qobuz.tracks) { QBTrackRow(track: $0) }
-                    }
-                    .padding(.horizontal, 20)
-                }
-            }
-            .padding(.top, 14)
-            .padding(.bottom, 96)
-        }
-    }
-}
-
-/// Small cyan "HI-RES" pill shown on 24-bit content.
-struct QBHiResBadge: View {
-    var body: some View {
-        Text("HI-RES")
-            .font(.system(size: 8, weight: .heavy)).tracking(0.8)
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .background(.cyan.opacity(0.2), in: Capsule())
-            .foregroundStyle(.cyan)
-    }
-}
-
-/// The shared download-state control: arrow → spinner → checkmark.
-struct QBDownloadButton: View {
-    let state: DownloadState?
-    let action: () -> Void
-
-    var body: some View {
-        switch state {
-        case .downloading:
-            ProgressView().controlSize(.small).frame(width: 26, height: 26)
-        case .done:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.callout).foregroundStyle(.green)
-                .frame(width: 26, height: 26)
-                .help("Downloaded to your library")
-        case .failed(let message):
-            Button(action: action) {
-                Image(systemName: "exclamationmark.arrow.circlepath")
-                    .font(.callout).frame(width: 26, height: 26).contentShape(Circle())
-            }
-            .buttonStyle(.plain).foregroundStyle(.orange)
-            .help("Failed: \(message) — tap to retry")
-        case nil:
-            Button(action: action) {
-                Image(systemName: "arrow.down.circle")
-                    .font(.callout).frame(width: 26, height: 26).contentShape(Circle())
-            }
-            .buttonStyle(.plain).foregroundStyle(.secondary)
-            .help("Download")
-        }
-    }
-}
-
-struct QBAlbumCard: View {
-    let album: QBAlbum
-    @ObservedObject private var qobuz = QobuzService.shared
-    @State private var hovered = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                YTArt(url: album.cover, size: 132, corner: 12, placeholder: "opticaldisc")
-                if case .downloading = qobuz.state(forAlbum: album.id) {
-                    ProgressView().controlSize(.small).padding(6)
-                        .background(.black.opacity(0.55), in: Circle()).padding(5)
-                } else if case .done = qobuz.state(forAlbum: album.id) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green).padding(6)
-                        .background(.black.opacity(0.55), in: Circle()).padding(5)
-                } else if hovered {
-                    Button { qobuz.download(album: album) } label: {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.title3).foregroundStyle(.white)
-                            .padding(4).background(.black.opacity(0.55), in: Circle())
-                    }
-                    .buttonStyle(.plain).padding(5)
-                    .help("Download album")
-                }
-            }
-            HStack(spacing: 5) {
-                Text(album.title).font(.caption.weight(.medium)).lineLimit(1)
-                if album.hires { QBHiResBadge() }
-            }
-            .frame(width: 132, alignment: .leading)
-            Text([album.artist, album.year].filter { !$0.isEmpty }.joined(separator: " · "))
-                .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
-                .frame(width: 132, alignment: .leading)
-        }
-        .onHover { hovered = $0 }
-    }
-}
-
-struct QBTrackRow: View {
-    let track: QBTrack
-    @ObservedObject private var qobuz = QobuzService.shared
-    @State private var hovered = false
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImage(url: track.cover) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Rectangle().fill(.white.opacity(0.06))
-                    .overlay(Image(systemName: "music.note").font(.caption).foregroundStyle(.secondary))
-            }
-            .frame(width: 46, height: 46)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.08)) }
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(track.title).font(.callout).lineLimit(1)
-                    if track.hires { QBHiResBadge() }
-                }
-                HStack(spacing: 6) {
-                    Text([track.artist, track.album].filter { !$0.isEmpty }.joined(separator: " — "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    if track.duration > 0 {
-                        Text("· \(timestamp(track.duration))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
-                    }
-                }
-            }
-            Spacer()
-            QBDownloadButton(state: qobuz.state(forTrack: track.id)) { qobuz.download(track: track) }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: 12))
-        .onHover { hovered = $0 }
     }
 }
 
