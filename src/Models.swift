@@ -339,6 +339,65 @@ final class Library: ObservableObject {
         return added
     }
 
+    // MARK: Tag repair
+
+    /// The videoId embedded in a downloaded file's name ("Title [dQw4w9WgXcQ].m4a").
+    /// A download that completes inside the app gets tagged as it lands; anything
+    /// the folder sweep picks up off disk does not — which is most of this library.
+    nonisolated static func downloadedVideoID(_ track: Track) -> String? {
+        let name = track.url.deletingPathExtension().lastPathComponent
+        guard name.hasSuffix("]"), let open = name.lastIndex(of: "[") else { return nil }
+        let id = String(name[name.index(after: open)..<name.index(before: name.endIndex)])
+        return id.count == 11 ? id : nil
+    }
+
+    /// Tracks that came from YouTube and never got real tags: no artist, or an
+    /// "album" that is really just the folder they happen to sit in.
+    var tracksMissingTags: [Track] {
+        tracks.filter { track in
+            guard Self.downloadedVideoID(track) != nil else { return false }
+            return track.artist.isEmpty || (track.albumKey?.hasPrefix("folder:") ?? true)
+        }
+    }
+
+    /// done / total while a repair runs, for the progress line in Settings.
+    @Published private(set) var taggingProgress: (done: Int, total: Int)?
+
+    /// Looks each untagged download up on YouTube Music and writes what comes
+    /// back — to the library *and* to the file, so the work survives a
+    /// re-import. `updateTrackTags` re-keys the album, so albums regroup as it
+    /// goes and the catch-all folder album dissolves.
+    func repairTags() async {
+        let pending = tracksMissingTags
+        guard !pending.isEmpty else { return }
+        taggingProgress = (0, pending.count)
+        defer { taggingProgress = nil }
+
+        for (index, track) in pending.enumerated() {
+            defer { taggingProgress = (index + 1, pending.count) }
+            guard let videoID = Self.downloadedVideoID(track) else { continue }
+            // Blocking helper call — keep it off the main actor.
+            let found = await Task.detached { YouTubeService.songTags(for: videoID) }.value
+            guard let found, let title = found.title, !title.isEmpty else { continue }
+
+            let edit = TagEdit(title: title,
+                               artist: found.artist ?? track.artist,
+                               album: found.album ?? "",
+                               albumArtist: found.albumArtist ?? found.artist ?? "",
+                               genre: track.genre ?? "",
+                               year: found.year.flatMap(Int.init) ?? track.year,
+                               trackNumber: found.track ?? track.trackNumber,
+                               trackTotal: found.trackTotal ?? track.trackTotal)
+            updateTrackTags(id: track.id, edit: edit)
+            if let thumb = found.thumb, !thumb.isEmpty,
+               let i = tracks.firstIndex(where: { $0.id == track.id }) {
+                tracks[i].artworkURL = thumb
+            }
+            try? await MetadataService.writeTags(edit, to: track.url)
+        }
+        save()
+    }
+
     // MARK: Play stats
 
     private var saveDebounce: Task<Void, Never>?

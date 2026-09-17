@@ -3104,6 +3104,32 @@ struct SettingsSheet: View {
             caption(watcher.folders.isEmpty
                     ? "New audio files in watched folders (e.g. your DAW bounces) are imported automatically. Your downloads folder is always scanned at launch."
                     : "Your downloads folder is always scanned at launch, so downloaded music can't go missing from the library.")
+
+            // Downloads that the folder sweep picked up off disk never went
+            // through the tagging that happens when a download completes, so
+            // they arrive with a filename for a title and no album at all.
+            let untagged = library.tracksMissingTags.count
+            if untagged > 0 || library.taggingProgress != nil {
+                Divider().opacity(0.2).padding(.vertical, 4)
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        panelHeader("Metadata")
+                        if let progress = library.taggingProgress {
+                            caption("Tagging \(progress.done) of \(progress.total)…")
+                        } else {
+                            caption("\(untagged) download\(untagged == 1 ? "" : "s") have no album or artist. Mute can look them up on YouTube Music and write real tags — to the library and to the files.")
+                        }
+                    }
+                    Spacer(minLength: 12)
+                    Button { Task { await library.repairTags() } } label: {
+                        Label(library.taggingProgress != nil ? "Tagging…" : "Fix Metadata",
+                              systemImage: "sparkles")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.glass).controlSize(.small)
+                    .disabled(library.taggingProgress != nil)
+                }
+            }
         }
     }
 }

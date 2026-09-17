@@ -712,6 +712,28 @@ final class YouTubeService: ObservableObject {
         return SongTrivia(text: text, subtitle: release, source: "Genius", url: songURL)
     }
 
+    // MARK: Tag repair
+
+    /// What YouTube Music knows about one video, used to write real tags onto a
+    /// file that was imported from disk rather than through the download flow.
+    struct SongTags: Decodable {
+        var title: String?
+        var artist: String?
+        var album: String?
+        var albumArtist: String?
+        var year: String?
+        var track: Int?
+        var trackTotal: Int?
+        var thumb: String?
+    }
+
+    nonisolated static func songTags(for videoID: String) -> SongTags? {
+        let (data, _) = runHelper(["song", videoID])
+        guard let data, let tags = try? JSONDecoder().decode(SongTags.self, from: data),
+              let title = tags.title, !title.isEmpty else { return nil }
+        return tags
+    }
+
     // MARK: Lyrics (timed, for Now Playing)
 
     @Published private(set) var lyrics: Lyrics?
@@ -1431,6 +1453,105 @@ extension YouTubeService {
                                "track": tn if isinstance(tn, int) else i})
             out = {"title": a.get("title") or "", "artist": first_artist(a),
                    "year": year_str(a.get("year")), "thumb": thumb(a), "tracks": tracks}
+            print(json.dumps(out))
+        elif cmd == "song":
+            # Resolving a downloaded file back to its catalogue entry.
+            # get_watch_playlist would be the direct route but throws KeyError
+            # 'endpoint' for many videos, and a file downloaded from a regular
+            # YouTube upload has a different videoId from the YT Music track
+            # anyway — so match on the title and artist the video itself
+            # reports, which are already clean ("Antisocial", "Anthrax") where
+            # the filename is not ("Anthrax - Antisocial (Official Video)").
+            vid = sys.argv[2]
+            out = {}
+            try:
+                wp = yt.get_watch_playlist(vid)
+                t = (wp.get("tracks") or [{}])[0]
+                alb = t.get("album") or {}
+                if not isinstance(alb, dict):
+                    alb = {"name": alb}
+                out = {"title": t.get("title") or "", "artist": first_artist(t),
+                       "album": alb.get("name") or "", "albumId": alb.get("id") or "",
+                       "thumb": thumb(t)}
+            except Exception:
+                pass
+            if not out.get("title"):
+                try:
+                    vd = (yt.get_song(vid) or {}).get("videoDetails") or {}
+                    out = {"title": vd.get("title") or "", "artist": vd.get("author") or "",
+                           "album": "", "albumId": "", "thumb": None}
+                except Exception:
+                    pass
+
+            def norm(x):
+                return re.sub(r"[^a-z0-9]", "", (x or "").lower())
+
+            def clean_title(t):
+                # YouTube uploads carry furniture the catalogue never has:
+                # "Get Lucky (Official Audio) ft. Pharrell Williams" is just
+                # "Get Lucky" as far as YT Music is concerned. Written without
+                # backslashes on purpose — this whole file is a Swift string
+                # literal, where a backslash-paren starts an interpolation.
+                t = t or ""
+                noise = "[([][ ]*(official[ ]*)?(music[ ]*)?(video|audio|lyrics?|visualizer|hd|hq|4k)[ ]*[])]"
+                t = re.sub(noise, " ", t, flags=re.I)
+                # The leading [ ]+ is load-bearing: without it this eats the
+                # "ft" inside "Daft Punk" and leaves "Da".
+                t = re.sub("[ ]+[([]?[ ]*(ft[.]?|feat[.]?)[ ][^])]*[])]?", " ", t, flags=re.I)
+                t = re.sub("[ ]*-[ ]*(official[ ]*)?(music[ ]*)?(video|audio)[ ]*$", " ", t, flags=re.I)
+                t = re.sub("[ ]{2,}", " ", t)
+                return t.strip(" -" + chr(8211) + chr(8212))
+
+            if out.get("title"):
+                out["title"] = clean_title(out["title"]) or out["title"]
+
+            # Find the catalogue entry, which is what carries the album.
+            if out.get("title") and not out.get("album"):
+                want, artist = norm(out["title"]), norm(out.get("artist"))
+                try:
+                    hits = yt.search("%s %s" % (out["title"], out.get("artist") or ""),
+                                     filter="songs", limit=8) or []
+                except Exception:
+                    hits = []
+                best = None
+                for h in hits:
+                    alb = h.get("album") or {}
+                    if not isinstance(alb, dict) or not alb.get("name"):
+                        continue
+                    # The catalogue has its own furniture — "Get Lucky (feat.
+                    # Pharrell Williams)" — so clean both sides before comparing.
+                    if norm(clean_title(h.get("title"))) != want:
+                        continue
+                    # Live and anniversary re-recordings share the title; prefer
+                    # a hit whose artist matches too, and take the first one.
+                    if artist and artist not in norm(first_artist(h)):
+                        continue
+                    best = h
+                    break
+                if best:
+                    alb = best["album"]
+                    out["album"] = alb.get("name") or ""
+                    out["albumId"] = alb.get("id") or ""
+                    if not out.get("thumb"):
+                        out["thumb"] = thumb(best)
+
+            # The album gives the year, the album artist and the track number.
+            if out.get("albumId"):
+                try:
+                    a = yt.get_album(out["albumId"])
+                    out["year"] = year_str(a.get("year"))
+                    out["albumArtist"] = first_artist(a)
+                    if not out.get("thumb"):
+                        out["thumb"] = thumb(a)
+                    want = norm(out.get("title"))
+                    for i, tr in enumerate(a.get("tracks") or [], 1):
+                        if norm(tr.get("title")) == want:
+                            tn = tr.get("trackNumber")
+                            out["track"] = tn if isinstance(tn, int) else i
+                            out["trackTotal"] = len(a.get("tracks") or [])
+                            break
+                except Exception:
+                    pass
             print(json.dumps(out))
         elif cmd == "lyrics":
             vid = sys.argv[2]
