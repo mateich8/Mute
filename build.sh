@@ -3,7 +3,17 @@
 set -e
 cd "$(dirname "$0")"
 
-swiftc -O -parse-as-library -target arm64-apple-macos26.0 src/*.swift -o Mute
+# Pin the macOS 26.5 SDK. The CLT 27 SDK declares SwiftUI's @State, @Binding and
+# friends as macros, but Command Line Tools ships no SwiftUIMacros plugin — that
+# one lives inside Xcode — so every @State in the app fails to compile against
+# MacOSX27.sdk with "plugin for module 'SwiftUIMacros' not found".
+SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+if [ ! -d "$SDK" ]; then
+  echo "error: $SDK is missing. Install Xcode, or point SDK at another macOS 26 SDK." >&2
+  exit 1
+fi
+
+swiftc -O -parse-as-library -sdk "$SDK" -target arm64-apple-macos26.0 src/*.swift -o Mute
 
 mkdir -p "Mute.app/Contents/MacOS" "Mute.app/Contents/Resources"
 cp Mute "Mute.app/Contents/MacOS/Mute"
