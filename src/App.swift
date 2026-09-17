@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Makes the main window non-restorable and full-bleed with a transparent
     /// titlebar, so the standard macOS traffic lights stay anchored to the native
     /// window frame's top-left (over the backdrop), while our content fills the
-    /// window. The floating cards reserve a titlebar strip (kTitlebarStrip) below
+    /// window. The sidebar runs full height and the traffic lights sit inside it,
     /// the lights, so the buttons never overlap the sidebar's rounded card.
     static func configureMainWindow(attempt: Int = 0) {
         DispatchQueue.main.async {

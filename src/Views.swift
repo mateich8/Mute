@@ -93,14 +93,12 @@ enum SearchScope: String, CaseIterable, Identifiable {
 
 /// Sidebar width, used to keep the floating mini-player centered over content.
 let kSidebarWidth: CGFloat = 236
-/// Inset from the window edge and panel corner radius. Chosen so the panel
-/// corners nest concentrically inside the window's own rounded corner
-/// (panelRadius ≈ windowRadius − inset on macOS Tahoe).
+/// Corner radius for panels and cards drawn inside the content area.
 let kPanelInset: CGFloat = 8
 let kPanelRadius: CGFloat = 16
-/// Height of the native titlebar strip kept clear above the floating cards so the
-/// macOS traffic lights live in the standard titlebar area over the backdrop.
-let kTitlebarStrip: CGFloat = 24
+/// Clearance at the top of the sidebar for the traffic lights, which now sit
+/// inside the sidebar the way every system app places them.
+let kTrafficLightStrip: CGFloat = 38
 
 struct ContentView: View {
     @ObservedObject private var player = Player.shared
@@ -114,14 +112,14 @@ struct ContentView: View {
         ZStack {
             Backdrop()
 
+            // One continuous surface: a full-height sidebar flush to the window
+            // edge with the traffic lights inside it, and the content beside it —
+            // the way macOS composes a split view, rather than two cards floating
+            // on a backdrop.
             HStack(spacing: 0) {
                 Sidebar(showSettings: $showSettings, showImporter: $showImporter)
                 MainArea(showImporter: $showImporter)
             }
-            // Reserve a standard titlebar strip at the very top: the floating glass
-            // cards start BELOW it, so the macOS traffic lights sit in the native
-            // titlebar area over the backdrop — never over the sidebar's rounded card.
-            .padding(.top, kTitlebarStrip)
             .ignoresSafeArea(.container, edges: .top)
 
             if ui.zenMode { ZenModeView().zIndex(10).transition(.opacity) }
@@ -132,8 +130,8 @@ struct ContentView: View {
             if player.current != nil, ui.tab != .nowPlaying {
                 MiniBar()
                     .padding(.bottom, 22)
-                    .padding(.leading, kSidebarWidth + kPanelInset + 4)
-                    .padding(.trailing, kPanelInset)
+                    .padding(.leading, kSidebarWidth + 16)
+                    .padding(.trailing, 16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -190,9 +188,9 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Small breathing room at the card's top (the traffic lights live in
-            // the titlebar strip above the card, not inside it).
-            Color.clear.frame(height: 18)
+            // The traffic lights sit here now, so the first label has to start
+            // below them.
+            Color.clear.frame(height: kTrafficLightStrip)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -234,17 +232,18 @@ struct Sidebar: View {
         }
         .frame(width: kSidebarWidth)
         .frame(maxHeight: .infinity)
-        .background(.black.opacity(0.10), in: RoundedRectangle(cornerRadius: kPanelRadius))
-        .appGlass(in: .rect(cornerRadius: kPanelRadius))
-        .padding(.leading, kPanelInset)
-        .padding(.vertical, kPanelInset)   // symmetric top/bottom margin (centered vertically)
-        .padding(.trailing, kPanelInset / 2)
+        .background(.black.opacity(0.16))
+        .appGlass(in: .rect(cornerRadius: 0))
+        // Hairline seam instead of a gap: the two halves read as one window.
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Surface.stroke).frame(width: 1)
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.8)
+            .font(TypeScale.eyebrow)
+            .tracking(1.4)
             .foregroundStyle(.tertiary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -333,6 +332,7 @@ struct MainArea: View {
     @Binding var showImporter: Bool
     @ObservedObject private var ui = UIState.shared
     @ObservedObject private var library = Library.shared
+    @ObservedObject private var player = Player.shared
 
     private var sectionTitle: String {
         if !ui.debouncedSearch.isEmpty { return "Search" }
@@ -353,7 +353,7 @@ struct MainArea: View {
         VStack(spacing: 0) {
             topBar
                 .padding(.horizontal, 24)
-                .padding(.top, 18)
+                .padding(.top, kTrafficLightStrip)
                 .padding(.bottom, 14)
             if !ui.debouncedSearch.isEmpty {
                 SearchResultsView()
@@ -364,12 +364,16 @@ struct MainArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black.opacity(0.10), in: RoundedRectangle(cornerRadius: kPanelRadius))
-        .clipShape(RoundedRectangle(cornerRadius: kPanelRadius))
-        .appGlass(in: .rect(cornerRadius: kPanelRadius))
-        .padding(.trailing, kPanelInset)
-        .padding(.vertical, kPanelInset)   // symmetric top/bottom margin (centered vertically)
-        .padding(.leading, kPanelInset / 2)
+        .background(.black.opacity(0.10))
+        // A breath of the playing album's colour where the content meets the
+        // top of the window — the flattest part of the old layout.
+        .background(alignment: .top) {
+            LinearGradient(colors: [Chroma.current.opacity(0.13), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 220)
+                .animation(.smooth(duration: 0.8), value: player.current?.id)
+                .allowsHitTesting(false)
+        }
     }
 
     private var topBar: some View {
