@@ -2944,6 +2944,13 @@ struct SettingsSheet: View {
             HStack {
                 panelHeader("Watched Folders")
                 Spacer()
+                Button { watcher.sweep() } label: {
+                    Label(library.importing ? "Scanning…" : "Rescan", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.glass).controlSize(.small)
+                .disabled(library.importing)
+                .help("Look through these folders and your downloads for music that isn't in the library yet")
                 Button { showFolderPicker = true } label: {
                     Label("Add Folder", systemImage: "plus").font(.caption.weight(.semibold))
                 }
@@ -2961,9 +2968,18 @@ struct SettingsSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-            if watcher.folders.isEmpty {
-                caption("New audio files in watched folders (e.g. your DAW bounces) are imported automatically.")
+            // Always scanned, never removable — show it so downloaded music
+            // doesn't look like it appeared from nowhere.
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle").font(.caption).foregroundStyle(.secondary)
+                Text((YouTubeService.downloadDir.path as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Text("Always").font(.caption2).foregroundStyle(.tertiary)
             }
+            caption(watcher.folders.isEmpty
+                    ? "New audio files in watched folders (e.g. your DAW bounces) are imported automatically. Your downloads folder is always scanned at launch."
+                    : "Your downloads folder is always scanned at launch, so downloaded music can't go missing from the library.")
         }
     }
 }

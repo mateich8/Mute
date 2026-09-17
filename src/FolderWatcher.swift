@@ -10,18 +10,35 @@ final class FolderWatcher: ObservableObject {
     @Published private(set) var folders: [String]
     private var stream: FSEventStreamRef?
 
+    /// The app's own download folder is always watched and swept, even though
+    /// it never appears in `folders` and can't be removed. Downloads otherwise
+    /// only ever reach the library through the one-shot import that runs when a
+    /// download finishes — so a lost or reset library.json used to orphan every
+    /// downloaded file permanently, with nothing left that could rediscover it.
+    private var implicitFolders: [String] { [YouTubeService.downloadDir.path] }
+
+    /// Everything the stream watches and a sweep imports: the user's folders
+    /// plus the implicit ones, de-duplicated in case they overlap.
+    var watchPaths: [String] { folders + implicitFolders.filter { !folders.contains($0) } }
+
     init() {
         folders = UserDefaults.standard.stringArray(forKey: "watchedFolders") ?? []
     }
 
-    /// Call at launch: starts the stream and sweeps folders once to pick up
-    /// files added while the app wasn't running.
+    /// Call at launch: starts the stream and sweeps once to pick up files
+    /// added while the app wasn't running.
     func start() {
         restart()
-        let existing = folders
-        if !existing.isEmpty {
-            Task { await Library.shared.importFiles(existing.map { URL(fileURLWithPath: $0) }) }
-        }
+        sweep()
+    }
+
+    /// Re-imports every watched path. Cheap to repeat — `importFiles` skips
+    /// paths already in the library — so this doubles as the manual "Rescan"
+    /// action in Settings ▸ Library.
+    func sweep() {
+        let paths = watchPaths
+        guard !paths.isEmpty else { return }
+        Task { await Library.shared.importFiles(paths.map { URL(fileURLWithPath: $0) }) }
     }
 
     func add(_ url: URL) {
@@ -50,7 +67,8 @@ final class FolderWatcher: ObservableObject {
             FSEventStreamRelease(stream)
             self.stream = nil
         }
-        guard !folders.isEmpty else { return }
+        let watched = watchPaths
+        guard !watched.isEmpty else { return }
 
         var context = FSEventStreamContext(version: 0,
                                            info: Unmanaged.passUnretained(self).toOpaque(),
@@ -65,7 +83,7 @@ final class FolderWatcher: ObservableObject {
             Task { @MainActor in watcher.handleEvents(paths) }
         }
         guard let created = FSEventStreamCreate(nil, callback, &context,
-                                                folders as CFArray,
+                                                watched as CFArray,
                                                 FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
                                                 2.0, flags) else { return }
         FSEventStreamSetDispatchQueue(created, DispatchQueue.global(qos: .utility))
