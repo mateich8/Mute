@@ -361,3 +361,103 @@ struct MetaLine: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+// MARK: - Shared components
+
+/// The one play affordance. It was drawn at least four ways: a glass circle on
+/// a cover, a prominent pill on a detail header, an icon-and-label inside a
+/// hero card, and a bare symbol in a row.
+struct PlayButton: View {
+    enum Kind {
+        /// The circular button that appears over artwork on hover.
+        case cover
+        /// The primary "Play" control on a detail header or hero card.
+        case prominent
+    }
+
+    var kind: Kind = .cover
+    var size: CGFloat = 34
+    let action: () -> Void
+
+    var body: some View {
+        switch kind {
+        case .cover:
+            Button(action: action) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: size * 0.41))
+                    .frame(width: size, height: size)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+        case .prominent:
+            Button(action: action) {
+                Label("Play", systemImage: "play.fill").font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.glassProminent)
+        }
+    }
+}
+
+/// The one cover card: artwork, title, subtitle, a play button on hover, and
+/// whatever badges the caller needs over the art. The local and YouTube cards
+/// were the same idea built twice — different spacing, different title size,
+/// different subtitle colour — which is most of why the YouTube screens read as
+/// a separate app.
+struct CoverCard<Art: View, Accessory: View>: View {
+    /// nil lets the card fill its grid cell; a value pins it, for shelves.
+    var width: CGFloat? = nil
+    let title: String
+    var subtitle: String? = nil
+    /// Omitted where a cover has nothing to play directly.
+    var onPlay: (() -> Void)? = nil
+    let open: () -> Void
+    @ViewBuilder var art: () -> Art
+    /// Drawn over the artwork; position it with your own frame alignment.
+    @ViewBuilder var accessory: () -> Accessory
+
+    @State private var hovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            art()
+                // Keeps the glass play button readable over pale artwork.
+                .overlay {
+                    LinearGradient(colors: [.clear, .black.opacity(hovered && onPlay != nil ? 0.45 : 0)],
+                                   startPoint: .center, endPoint: .bottom)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.art))
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if hovered, let onPlay {
+                        PlayButton(action: onPlay)
+                            .padding(8)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
+                .shadow(color: .black.opacity(hovered ? 0.4 : 0.2), radius: hovered ? 14 : 8, y: 6)
+                .overlay { accessory() }
+            Text(title)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.bottom, 2)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
+        .interactiveSurface { h in withAnimation(Motion.hover) { hovered = h } }
+    }
+}
+
+extension CoverCard where Accessory == EmptyView {
+    init(width: CGFloat? = nil, title: String, subtitle: String? = nil,
+         onPlay: (() -> Void)? = nil, open: @escaping () -> Void,
+         @ViewBuilder art: @escaping () -> Art) {
+        self.init(width: width, title: title, subtitle: subtitle, onPlay: onPlay,
+                  open: open, art: art) { EmptyView() }
+    }
+}

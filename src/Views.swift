@@ -793,15 +793,9 @@ struct ArtistsView: View {
 
     @ViewBuilder private func playButton(sortedTracks: [Track], profile: YTArtistDetail?) -> some View {
         if !sortedTracks.isEmpty {
-            Button { player.play(queue: sortedTracks, at: 0) } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-            .buttonStyle(.glassProminent).controlSize(.large)
+            PlayButton(kind: .prominent) { player.play(queue: sortedTracks, at: 0) }
         } else if let top = profile?.topSongs, !top.isEmpty {
-            Button { youtube.play(top[0]) } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-            .buttonStyle(.glassProminent).controlSize(.large)
+            PlayButton(kind: .prominent) { youtube.play(top[0]) }
         }
     }
 
@@ -1088,7 +1082,7 @@ struct HomeView: View {
                     ForEach(recents) { e in
                         Button { playEvent(e) } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                ArtworkSquare(image: library.artwork(for: libraryTrack(e)), corner: 10,
+                                ArtworkSquare(image: library.artwork(for: libraryTrack(e)), corner: Radius.row,
                                               remote: eventRemote(e), remoteFallback: eventFallback(e),
                                               seed: libraryTrack(e)?.album)
                                     .frame(width: 118, height: 118)
@@ -1117,7 +1111,7 @@ struct HomeView: View {
                         HStack(spacing: 12) {
                             Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
                                 .frame(width: 22, alignment: .center)
-                            ArtworkSquare(image: library.artwork(for: track), corner: 6,
+                            ArtworkSquare(image: library.artwork(for: track), corner: Radius.chip,
                                           remote: track.remoteArtworkURL, remoteFallback: track.remoteArtworkFallbackURL)
                                 .frame(width: 38, height: 38)
                             VStack(alignment: .leading, spacing: 1) {
@@ -1287,7 +1281,7 @@ struct NewView: View {
                     RemoteArtwork(url: album.thumb, fallback: album.thumb) { Color(white: 0.15) }
                         .blur(radius: 34).opacity(0.55)
                         .overlay(Color.black.opacity(0.3))
-                    ArtworkSquare(image: nil, corner: 10, remote: album.thumb, remoteFallback: album.thumb)
+                    ArtworkSquare(image: nil, corner: Radius.row, remote: album.thumb, remoteFallback: album.thumb)
                         .frame(height: 226)
                         .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
                 }
@@ -1525,7 +1519,7 @@ struct ProfileView: View {
             ForEach(Array(items.enumerated()), id: \.element.id) { i, t in
                 HStack(spacing: 10) {
                     Text("\(i + 1)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 16)
-                    ArtworkSquare(image: trackArt(t.id), corner: 6,
+                    ArtworkSquare(image: trackArt(t.id), corner: Radius.chip,
                                   remote: t.videoID.map { URL(string: "https://i.ytimg.com/vi/\($0)/mqdefault.jpg")! } ?? t.artworkURL.flatMap { URL(string: $0) },
                                   remoteFallback: t.videoID.map { URL(string: "https://i.ytimg.com/vi/\($0)/hqdefault.jpg")! })
                         .frame(width: 34, height: 34)
@@ -1947,7 +1941,7 @@ struct NowPlayingView: View {
     private func upNextRow(_ track: Track, index: Int) -> some View {
         Button { player.play(at: index) } label: {
             HStack(spacing: 10) {
-                ArtworkSquare(image: library.artwork(for: track), corner: 6,
+                ArtworkSquare(image: library.artwork(for: track), corner: Radius.chip,
                               remote: track.remoteArtworkURL, remoteFallback: track.remoteArtworkFallbackURL)
                     .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 1) {
@@ -2470,10 +2464,7 @@ struct AlbumSelectionBar: View {
             Text("\(ui.albumMultiSelection.count) selected")
                 .font(.caption.weight(.semibold))
             Divider().frame(height: 16)
-            Button { Player.shared.play(queue: selectedTracks, at: 0) } label: {
-                Label("Play", systemImage: "play.fill").font(.caption.weight(.semibold))
-            }
-            .buttonStyle(.glassProminent)
+            PlayButton(kind: .prominent) { Player.shared.play(queue: selectedTracks, at: 0) }
             Button { Player.shared.playNext(selectedTracks) } label: {
                 Text("Play Next").font(.caption)
             }
@@ -2523,7 +2514,6 @@ struct AlbumCard: View {
     var namespace: Namespace.ID? = nil
     @ObservedObject private var library = Library.shared
     @ObservedObject private var player = Player.shared
-    @State private var hovered = false
 
     /// True while anything from this album is the current track.
     private var isCurrent: Bool {
@@ -2539,72 +2529,43 @@ struct AlbumCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        CoverCard(title: album.name,
+                  subtitle: subtitle,
+                  onPlay: { Player.shared.play(queue: album.tracks, at: 0) },
+                  open: open) {
             ArtworkSquare(image: library.artwork(for: album), corner: Radius.art,
                           remote: album.remoteArtworkURL,
                           remoteFallback: album.remoteArtworkFallbackURL,
                           seed: album.name)
-                // Keeps the glass play button readable over pale cover art.
-                .overlay {
-                    LinearGradient(colors: [.clear, .black.opacity(hovered ? 0.45 : 0)],
-                                   startPoint: .center, endPoint: .bottom)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.art))
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if hovered {
-                        Button { Player.shared.play(queue: album.tracks, at: 0) } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 14))
-                                .frame(width: 34, height: 34)
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .padding(8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                }
-                .shadow(color: .black.opacity(hovered ? 0.4 : 0.2), radius: hovered ? 14 : 8, y: 6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.art)
-                        .strokeBorder(.white.opacity(selected ? 0.9 : 0), lineWidth: 2.5)
-                )
-                .overlay(alignment: .topLeading) {
-                    if selected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 17))
-                            .foregroundStyle(.black, .white)
-                            .padding(7)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
                 .matchedIfPresent("album-\(album.id)", in: namespace)
-                .overlay(alignment: .topTrailing) {
-                    if isCurrent && !selected {
-                        // Same speaker idiom the track rows use, so "this is
-                        // the one playing" looks the same everywhere.
-                        Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.black)
-                            .frame(width: 24, height: 24)
-                            .background(.white, in: Circle())
-                            .padding(7)
-                            .transition(.scale.combined(with: .opacity))
-                    }
+        } accessory: {
+            ZStack {
+                RoundedRectangle(cornerRadius: Radius.art)
+                    .strokeBorder(.white.opacity(selected ? 0.9 : 0), lineWidth: 2.5)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.black, .white)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .transition(.scale.combined(with: .opacity))
                 }
-            Text(album.name)
-                .font(.callout.weight(.medium))
-                .lineLimit(1)
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .padding(.bottom, 2)
+                if isCurrent && !selected {
+                    // Same speaker idiom the track rows use, so "this is the one
+                    // playing" looks the same everywhere.
+                    Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(width: 24, height: 24)
+                        .background(.white, in: Circle())
+                        .padding(7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
         }
-        .animation(Motion.hover, value: isCurrent)
         .opacity(selected ? 0.92 : 1)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
-        .interactiveSurface { h in withAnimation(Motion.hover) { hovered = h } }
+        .animation(Motion.hover, value: isCurrent)
         .contextMenu {
             Button("Play") { Player.shared.play(queue: album.tracks, at: 0) }
             Button("Play Next") { Player.shared.playNext(album.tracks) }
@@ -2718,13 +2679,9 @@ struct AlbumDetailView: View {
                     Text("\(album.tracks.count) songs · \(Int(album.tracks.reduce(0) { $0 + $1.duration } / 60)) min")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Button {
+                    PlayButton(kind: .prominent) {
                         Player.shared.play(queue: album.tracks, at: 0)
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .font(.caption.weight(.semibold))
                     }
-                    .buttonStyle(.glassProminent)
                     Button { edit() } label: {
                         Label("Edit", systemImage: "pencil")
                             .font(.caption.weight(.semibold))
@@ -2766,7 +2723,7 @@ struct EditAlbumSheet: View {
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(spacing: 10) {
-                    ArtworkSquare(image: newArtwork ?? library.artwork(for: album), corner: 14,
+                    ArtworkSquare(image: newArtwork ?? library.artwork(for: album), corner: Radius.art,
                                   remote: album.remoteArtworkURL,
                                   remoteFallback: album.remoteArtworkFallbackURL,
                                   seed: album.name)
@@ -3812,11 +3769,8 @@ struct YTArtistView: View {
                     }
                 }
                 Spacer()
-                Button { if let first = detail.topSongs.first { youtube.play(first) } } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-                .buttonStyle(.glassProminent).controlSize(.large)
-                .disabled(detail.topSongs.isEmpty || !youtube.online)
+                PlayButton(kind: .prominent) { if let first = detail.topSongs.first { youtube.play(first) } }
+                    .disabled(detail.topSongs.isEmpty || !youtube.online)
             }
             .padding(24)
         }
@@ -3862,7 +3816,7 @@ struct YTAlbumView: View {
 
     private func header(_ detail: YTAlbumDetail) -> some View {
         VStack(spacing: 12) {
-            YTArt(url: detail.thumb, size: 150, corner: 12, placeholder: "opticaldisc")
+            YTArt(url: detail.thumb, size: 150, corner: Radius.art, placeholder: "opticaldisc")
             VStack(spacing: 3) {
                 Text(detail.title)
                     .font(.title3.weight(.semibold))
@@ -3874,11 +3828,8 @@ struct YTAlbumView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
-                Button { youtube.playAlbum(detail) } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(detail.tracks.isEmpty || !youtube.online)
+                PlayButton(kind: .prominent) { youtube.playAlbum(detail) }
+                    .disabled(detail.tracks.isEmpty || !youtube.online)
 
                 Button { youtube.addAlbumToLibrary(detail) } label: {
                     Label("Add to Library", systemImage: "plus")
@@ -3911,24 +3862,12 @@ struct YTAlbumCard: View {
     }
 
     var body: some View {
-        Button {
+        CoverCard(width: 132, title: album.title, subtitle: subtitle, open: {
             YouTubeService.shared.openAlbum(id: album.id, title: album.title)
-            withAnimation(.smooth(duration: 0.3)) { UIState.shared.clearSearch(); UIState.shared.tab = .youtube }
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                YTArt(url: album.thumb, size: 132, corner: 12, placeholder: "opticaldisc")
-                Text(album.title)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .frame(width: 132, alignment: .leading)
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .frame(width: 132, alignment: .leading)
-            }
+            withAnimation(Motion.navigate) { UIState.shared.clearSearch(); UIState.shared.tab = .youtube }
+        }) {
+            YTArt(url: album.thumb, size: 132, corner: Radius.art, placeholder: "opticaldisc")
         }
-        .buttonStyle(PressableCard())
     }
 }
 
@@ -4384,7 +4323,7 @@ struct TrackInfoSheet: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            ArtworkSquare(image: library.artwork(for: track), corner: 10,
+            ArtworkSquare(image: library.artwork(for: track), corner: Radius.row,
                           remote: track.remoteArtworkURL,
                           remoteFallback: track.remoteArtworkFallbackURL,
                           seed: track.album)
@@ -4891,10 +4830,8 @@ struct PlaylistDetailView: View {
                 Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s") · \(Int(tracks.reduce(0) { $0 + $1.duration } / 60)) min")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button { if !tracks.isEmpty { player.play(queue: tracks, at: 0) } } label: {
-                        Label("Play", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.glassProminent).disabled(tracks.isEmpty)
+                    PlayButton(kind: .prominent) { if !tracks.isEmpty { player.play(queue: tracks, at: 0) } }
+                        .disabled(tracks.isEmpty)
                     Button { if !tracks.isEmpty { player.play(queue: tracks.shuffled(), at: 0) } } label: {
                         Label("Shuffle", systemImage: "shuffle")
                     }
@@ -5024,7 +4961,7 @@ struct AddSongsSheet: View {
     private func row(title: String, artist: String, image: NSImage?, remote: URL?, fallback: URL?,
                      added: Bool, add: @escaping () -> Void) -> some View {
         HStack(spacing: 10) {
-            ArtworkSquare(image: image, corner: 6, remote: remote, remoteFallback: fallback)
+            ArtworkSquare(image: image, corner: Radius.chip, remote: remote, remoteFallback: fallback)
                 .frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.callout).lineLimit(1)
@@ -5061,13 +4998,9 @@ struct FavoritesDetailView: View {
                     Text("\(tracks.count) songs")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Button {
+                    PlayButton(kind: .prominent) {
                         if !tracks.isEmpty { player.play(queue: tracks, at: 0) }
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .font(.caption.weight(.semibold))
                     }
-                    .buttonStyle(.glassProminent)
                     .disabled(tracks.isEmpty)
                 }
             }
@@ -5286,7 +5219,7 @@ struct MiniBar: View {
         GlassEffectContainer {
             VStack(spacing: 7) {
                 HStack(spacing: 11) {
-                    ArtworkSquare(image: library.artwork(for: player.current), corner: 9,
+                    ArtworkSquare(image: library.artwork(for: player.current), corner: Radius.row,
                                   remote: player.current?.remoteArtworkURL,
                                   remoteFallback: player.current?.remoteArtworkFallbackURL)
                         .frame(width: 34, height: 34)
