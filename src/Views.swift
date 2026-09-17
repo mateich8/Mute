@@ -180,6 +180,7 @@ struct Sidebar: View {
     @ObservedObject private var youtube = YouTubeService.shared
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var profileStore = ProfileStore.shared
+    @ObservedObject private var player = Player.shared
     @Namespace private var navNS
 
     private var librarySections: [Tab] {
@@ -271,7 +272,13 @@ struct Sidebar: View {
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.14))
+                    // The pill is where the playing album's colour reaches the
+                    // sidebar — white here would read as more of the same grey.
+                    RoundedRectangle(cornerRadius: Radius.chip)
+                        .fill(Chroma.current.opacity(0.24))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.chip)
+                            .strokeBorder(Chroma.current.opacity(0.40), lineWidth: 1))
+                        .animation(.smooth(duration: 0.6), value: player.current?.id)
                         .matchedGeometryEffect(id: "navPill", in: navNS)
                 }
             }
@@ -299,7 +306,13 @@ struct Sidebar: View {
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.14))
+                    // The pill is where the playing album's colour reaches the
+                    // sidebar — white here would read as more of the same grey.
+                    RoundedRectangle(cornerRadius: Radius.chip)
+                        .fill(Chroma.current.opacity(0.24))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.chip)
+                            .strokeBorder(Chroma.current.opacity(0.40), lineWidth: 1))
+                        .animation(.smooth(duration: 0.6), value: player.current?.id)
                         .matchedGeometryEffect(id: "navPill", in: navNS)
                 }
             }
@@ -362,7 +375,8 @@ struct MainArea: View {
     private var topBar: some View {
         HStack(spacing: 14) {
             Text(sectionTitle)
-                .font(.title2.weight(.bold))
+                .font(TypeScale.page)
+                .tracking(-0.4)
                 .lineLimit(1)
             if library.importing { ProgressView().controlSize(.small) }
             Spacer(minLength: 12)
@@ -846,12 +860,16 @@ struct HomeView: View {
             .padding(.top, 16)
             .padding(.bottom, 96)
         }
+        // Recommendations arrive seconds after launch and add ~600pt in the
+        // middle of the page; without an anchor the view slides off the top.
+        .defaultScrollAnchor(.top)
         .task(id: youtube.ready) { youtube.loadRecommendations() }
         .task(id: player.current?.id) { youtube.loadRecommendations() }
     }
 
-    private func header(_ title: String) -> some View {
-        Text(title).font(.title3.weight(.bold)).padding(.horizontal, 28)
+    private func header(_ title: String, _ eyebrow: String? = nil) -> some View {
+        SectionHeader(eyebrow: eyebrow, title: title, accent: Chroma.current)
+            .padding(.horizontal, 28)
     }
 
     // MARK: Top Picks for You (big gradient cards)
@@ -866,8 +884,12 @@ struct HomeView: View {
     private var picks: [Pick] {
         var out: [Pick] = []
         if !mostPlayed.isEmpty {
+            let heavy = Array(library.mostPlayed.prefix(40))
+            let names = mostPlayed.prefix(4).map(\.artist).filter { !$0.isEmpty }.joined(separator: ", ")
             out.append(Pick(kicker: "MADE FOR YOU", title: "Heavy Rotation",
-                            subtitle: mostPlayed.prefix(4).map(\.artist).filter { !$0.isEmpty }.joined(separator: ", "),
+                            // An untagged library has no artist names to list,
+                            // which left the card with a blank line.
+                            subtitle: names.isEmpty ? "\(heavy.count) song\(heavy.count == 1 ? "" : "s")" : names,
                             colors: [Color(red: 0.95, green: 0.55, blue: 0.15), Color(red: 0.85, green: 0.25, blue: 0.30)],
                             symbol: "flame.fill", tracks: Array(library.mostPlayed.prefix(40))))
         }
@@ -880,7 +902,9 @@ struct HomeView: View {
         }
         if let recentAlbum = recents.first.flatMap({ e in library.albums.first(where: { $0.tracks.contains(where: { $0.path == e.path }) }) }) {
             out.append(Pick(kicker: "LISTEN AGAIN", title: recentAlbum.name,
-                            subtitle: recentAlbum.artist,
+                            subtitle: recentAlbum.artist == "Unknown Artist"
+                                ? "\(recentAlbum.tracks.count) song\(recentAlbum.tracks.count == 1 ? "" : "s")"
+                                : recentAlbum.artist,
                             colors: [Color(red: 0.18, green: 0.55, blue: 0.45), Color(red: 0.10, green: 0.30, blue: 0.40)],
                             symbol: "memories", tracks: recentAlbum.tracks))
         }
@@ -891,15 +915,23 @@ struct HomeView: View {
         let items = picks
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                header("Top Picks for You")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(items) { pick in
-                            Button { if !pick.tracks.isEmpty { player.play(queue: pick.tracks, at: 0) } } label: {
-                                pickCard(pick)
-                            }
-                            .buttonStyle(.plain)
+                header("Top Picks for You", "Start here")
+                // With three or more picks the first one runs full width as the
+                // page's focal point and the rest sit in a shelf behind it. With
+                // one or two, a hero would leave a lone tile stranded beside a
+                // lot of empty panel, so they share the width evenly instead.
+                if items.count >= 3 {
+                    playButton(items[0], size: .hero)
+                        .padding(.horizontal, 28)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(items.dropFirst()) { playButton($0, size: .tile) }
                         }
+                        .padding(.horizontal, 28)
+                    }
+                } else {
+                    HStack(spacing: 16) {
+                        ForEach(items) { playButton($0, size: .wide) }
                     }
                     .padding(.horizontal, 28)
                 }
@@ -907,18 +939,53 @@ struct HomeView: View {
         }
     }
 
-    private func pickCard(_ pick: Pick) -> some View {
-        ZStack(alignment: .bottomLeading) {
+    /// How much of the page a pick claims. `hero` is the single focal card,
+    /// `wide` shares a row evenly, `tile` is the fixed-width shelf card.
+    private enum PickSize {
+        case hero, wide, tile
+        var height: CGFloat { self == .hero ? 210 : self == .wide ? 190 : 170 }
+        var corner: CGFloat { self == .tile ? 18 : 22 }
+        var padding: CGFloat { self == .tile ? 18 : 24 }
+        var fills: Bool { self != .tile }
+        var titleFont: Font {
+            switch self {
+            case .hero: return .system(size: 42, weight: .heavy)
+            case .wide: return .system(size: 30, weight: .heavy)
+            case .tile: return .title2.weight(.heavy)
+            }
+        }
+        var tracking: CGFloat { self == .hero ? -1.2 : self == .wide ? -0.8 : 0 }
+        var symbolSize: CGFloat { self == .hero ? 200 : self == .wide ? 160 : 120 }
+        var symbolOffset: CGFloat { self == .hero ? 260 : self == .wide ? 150 : 120 }
+    }
+
+    private func playButton(_ pick: Pick, size: PickSize) -> some View {
+        Button { if !pick.tracks.isEmpty { player.play(queue: pick.tracks, at: 0) } } label: {
+            pickCard(pick, size: size)
+        }
+        // A card this wide shouldn't scale like a small tile — the whole page
+        // would look like it was breathing.
+        .buttonStyle(PressableCard(lift: size.fills ? 1.008 : Lift.card))
+    }
+
+    private func pickCard(_ pick: Pick, size: PickSize = .tile) -> some View {
+        let corner = size.corner
+        return ZStack(alignment: .bottomLeading) {
             LinearGradient(colors: pick.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: pick.symbol)
-                .font(.system(size: 120, weight: .bold))
+                .font(.system(size: size.symbolSize, weight: .bold))
                 .foregroundStyle(.white.opacity(0.16))
-                .offset(x: 120, y: 24)
-            VStack(alignment: .leading, spacing: 4) {
+                .offset(x: size.symbolOffset, y: size.fills ? 40 : 24)
+            VStack(alignment: .leading, spacing: size.fills ? 6 : 4) {
                 Text(pick.kicker).font(.caption2.weight(.bold)).tracking(1.2).foregroundStyle(.white.opacity(0.85))
-                Text(pick.title).font(.title2.weight(.heavy)).foregroundStyle(.white).lineLimit(2)
+                Text(pick.title)
+                    .font(size.titleFont)
+                    .tracking(size.tracking)
+                    .foregroundStyle(.white).lineLimit(2)
                 if !pick.subtitle.isEmpty {
-                    Text(pick.subtitle).font(.caption).foregroundStyle(.white.opacity(0.85)).lineLimit(2)
+                    Text(pick.subtitle)
+                        .font(size.fills ? .callout : .caption)
+                        .foregroundStyle(.white.opacity(0.85)).lineLimit(2)
                 }
                 Spacer()
                 HStack(spacing: 6) {
@@ -927,12 +994,13 @@ struct HomeView: View {
                 }
                 .foregroundStyle(.white)
             }
-            .padding(18)
+            .padding(size.padding)
         }
-        .frame(width: 300, height: 170)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.10)) }
-        .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+        .frame(width: size.fills ? nil : 300, height: size.height)
+        .frame(maxWidth: size.fills ? .infinity : nil, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: corner))
+        .overlay { RoundedRectangle(cornerRadius: corner).strokeBorder(.white.opacity(0.10)) }
+        .shadow(color: .black.opacity(size.fills ? 0.35 : 0.25), radius: size.fills ? 18 : 10, y: size.fills ? 8 : 4)
     }
 
     // MARK: Recommendations
@@ -940,14 +1008,13 @@ struct HomeView: View {
     @ViewBuilder private var recommendationsSection: some View {
         if youtube.recommendationsLoading && youtube.recommendations.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                header("Recommended for you")
+                header("Recommended for you", "Based on your taste")
                 HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }.padding(.vertical, 20)
             }
         } else if !youtube.recommendations.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Recommended for you").font(.title3.weight(.bold))
-                    Spacer()
+                SectionHeader(eyebrow: "Based on your taste", title: "Recommended for you",
+                              accent: Chroma.current) {
                     Button { youtube.loadRecommendations(force: true) } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
                             .frame(width: 26, height: 26).contentShape(Circle())
@@ -972,14 +1039,15 @@ struct HomeView: View {
 
     private var recentlyPlayedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header("Recently played")
+            header("Recently played", "Lately")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 16) {
                     ForEach(recents) { e in
                         Button { playEvent(e) } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 ArtworkSquare(image: library.artwork(for: libraryTrack(e)), corner: 10,
-                                              remote: eventRemote(e), remoteFallback: eventFallback(e))
+                                              remote: eventRemote(e), remoteFallback: eventFallback(e),
+                                              seed: libraryTrack(e)?.album)
                                     .frame(width: 118, height: 118)
                                 Text(e.title).font(.caption.weight(.medium)).lineLimit(1)
                                 Text(e.artist.isEmpty ? "Unknown Artist" : e.artist)
@@ -987,7 +1055,7 @@ struct HomeView: View {
                             }
                             .frame(width: 118)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableCard())
                     }
                 }
                 .padding(.horizontal, 28)
@@ -999,7 +1067,7 @@ struct HomeView: View {
 
     private var mostPlayedSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header("Most played")
+            header("Most played", "Your top tracks")
             LazyVStack(spacing: 2) {
                 ForEach(Array(mostPlayed.enumerated()), id: \.element.id) { i, track in
                     Button { player.play(queue: mostPlayed, at: i) } label: {
@@ -1032,7 +1100,7 @@ struct HomeView: View {
 
     private var topArtistsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header("Top artists")
+            header("Top artists", "Your artists")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 18) {
                     ForEach(topArtists, id: \.name) { artist in
@@ -1691,11 +1759,17 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 12)
             if let track = player.current {
-                let glow = library.dominantColor(for: track).map { Color(nsColor: $0) } ?? .black
+                // A real cover's dominant colour first; for an artless track
+                // fall back to its placeholder hue rather than black, which
+                // would mean no glow at all.
+                let glowSource = library.dominantColor(for: track)
+                    ?? Placeholder.tint(seed: track.album)
+                let glow = glowSource.map { Color(nsColor: $0) } ?? .black
                 VStack(spacing: 26) {
                     ArtworkCard(artwork: library.artwork(for: track),
                                 remote: track.remoteArtworkURL,
-                                remoteFallback: track.remoteArtworkFallbackURL)
+                                remoteFallback: track.remoteArtworkFallbackURL,
+                                seed: track.album)
                         .frame(width: 300, height: 300)
                         // Breathe with playback (Apple Music shrinks paused art),
                         // and cast a soft ambient glow in the artwork's own color.
@@ -2167,14 +2241,20 @@ struct AlbumsView: View {
     @ObservedObject private var settings = Settings.shared
     @ObservedObject private var ui = UIState.shared
     @State private var editingAlbum: Album?
+    /// Ties each grid cover to the same cover in the detail header, so opening
+    /// an album flies the artwork into place instead of cutting to a new screen.
+    @Namespace private var albumNS
 
     var body: some View {
         Group {
             if let id = ui.albumSelection, let album = library.albums.first(where: { $0.id == id }) {
                 AlbumDetailView(album: album,
-                                back: { withAnimation(.smooth(duration: 0.3)) { ui.albumSelection = nil } },
-                                edit: { editingAlbum = album })
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                                back: { withAnimation(Motion.navigate) { ui.albumSelection = nil } },
+                                edit: { editingAlbum = album },
+                                namespace: albumNS)
+                    // Plain fade: the cover carries the movement, and a sliding
+                    // panel underneath it would pull in the opposite direction.
+                    .transition(.opacity)
             } else if library.tracks.isEmpty {
                 VStack {
                     Spacer()
@@ -2242,7 +2322,8 @@ struct AlbumsView: View {
                                 AlbumCard(album: album,
                                           selected: ui.albumMultiSelection.contains(album.id),
                                           open: { handleClick(album) },
-                                          edit: { editingAlbum = album })
+                                          edit: { editingAlbum = album },
+                                          namespace: albumNS)
                             }
                         }
                         .padding(.horizontal, 28)
@@ -2333,7 +2414,7 @@ struct AlbumsView: View {
                 withAnimation(.smooth(duration: 0.15)) { ui.albumMultiSelection = [] }
             }
             ui.albumSelectionAnchor = album.id
-            withAnimation(.smooth(duration: 0.3)) { ui.albumSelection = album.id }
+            withAnimation(Motion.navigate) { ui.albumSelection = album.id }
         }
     }
 }
@@ -2404,13 +2485,37 @@ struct AlbumCard: View {
     var selected: Bool = false
     let open: () -> Void
     let edit: () -> Void
+    /// Supplied only where the card can open into a detail screen.
+    var namespace: Namespace.ID? = nil
     @ObservedObject private var library = Library.shared
+    @ObservedObject private var player = Player.shared
     @State private var hovered = false
+
+    /// True while anything from this album is the current track.
+    private var isCurrent: Bool {
+        guard let current = player.current else { return false }
+        return album.tracks.contains { $0.id == current.id }
+    }
+
+    /// `Album.artist` is synthesized as "Unknown Artist" when nothing on the
+    /// album is tagged — the track count tells you more than that does.
+    private var subtitle: String {
+        guard album.artist == "Unknown Artist" else { return album.artist }
+        return "\(album.tracks.count) song\(album.tracks.count == 1 ? "" : "s")"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            ArtworkSquare(image: library.artwork(for: album), corner: 12,
-                          remote: album.remoteArtworkURL, remoteFallback: album.remoteArtworkFallbackURL)
+            ArtworkSquare(image: library.artwork(for: album), corner: Radius.art,
+                          remote: album.remoteArtworkURL,
+                          remoteFallback: album.remoteArtworkFallbackURL,
+                          seed: album.name)
+                // Keeps the glass play button readable over pale cover art.
+                .overlay {
+                    LinearGradient(colors: [.clear, .black.opacity(hovered ? 0.45 : 0)],
+                                   startPoint: .center, endPoint: .bottom)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.art))
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if hovered {
                         Button { Player.shared.play(queue: album.tracks, at: 0) } label: {
@@ -2426,7 +2531,7 @@ struct AlbumCard: View {
                 }
                 .shadow(color: .black.opacity(hovered ? 0.4 : 0.2), radius: hovered ? 14 : 8, y: 6)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: Radius.art)
                         .strokeBorder(.white.opacity(selected ? 0.9 : 0), lineWidth: 2.5)
                 )
                 .overlay(alignment: .topLeading) {
@@ -2438,20 +2543,34 @@ struct AlbumCard: View {
                             .transition(.scale.combined(with: .opacity))
                     }
                 }
+                .matchedIfPresent("album-\(album.id)", in: namespace)
+                .overlay(alignment: .topTrailing) {
+                    if isCurrent && !selected {
+                        // Same speaker idiom the track rows use, so "this is
+                        // the one playing" looks the same everywhere.
+                        Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .frame(width: 24, height: 24)
+                            .background(.white, in: Circle())
+                            .padding(7)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
             Text(album.name)
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
-            Text(album.artist)
+            Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .padding(.bottom, 2)
         }
-        .scaleEffect(hovered ? 1.02 : 1)
+        .animation(Motion.hover, value: isCurrent)
         .opacity(selected ? 0.92 : 1)
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
-        .onHover { h in withAnimation(.smooth(duration: 0.18)) { hovered = h } }
+        .interactiveSurface { h in withAnimation(Motion.hover) { hovered = h } }
         .contextMenu {
             Button("Play") { Player.shared.play(queue: album.tracks, at: 0) }
             Button("Play Next") { Player.shared.playNext(album.tracks) }
@@ -2486,6 +2605,7 @@ struct AlbumDetailView: View {
     let album: Album
     let back: () -> Void
     let edit: () -> Void
+    var namespace: Namespace.ID? = nil
     @ObservedObject private var library = Library.shared
     @ObservedObject private var player = Player.shared
     @State private var artistHover = false
@@ -2533,9 +2653,12 @@ struct AlbumDetailView: View {
 
     private var header: some View {
         HStack(alignment: .bottom, spacing: 18) {
-            ArtworkSquare(image: library.artwork(for: album), corner: 12,
-                          remote: album.remoteArtworkURL, remoteFallback: album.remoteArtworkFallbackURL)
+            ArtworkSquare(image: library.artwork(for: album), corner: Radius.art,
+                          remote: album.remoteArtworkURL,
+                          remoteFallback: album.remoteArtworkFallbackURL,
+                          seed: album.name)
                 .frame(width: 130, height: 130)
+                .matchedIfPresent("album-\(album.id)", in: namespace)
             VStack(alignment: .leading, spacing: 6) {
                 Text(album.name)
                     .font(.title2.weight(.semibold))
@@ -2610,7 +2733,9 @@ struct EditAlbumSheet: View {
             HStack(alignment: .top, spacing: 18) {
                 VStack(spacing: 10) {
                     ArtworkSquare(image: newArtwork ?? library.artwork(for: album), corner: 14,
-                                  remote: album.remoteArtworkURL, remoteFallback: album.remoteArtworkFallbackURL)
+                                  remote: album.remoteArtworkURL,
+                                  remoteFallback: album.remoteArtworkFallbackURL,
+                                  seed: album.name)
                         .frame(width: 120, height: 120)
                     Button("Choose Image…") { showImagePicker = true }
                         .buttonStyle(.glass)
@@ -3745,7 +3870,6 @@ struct YTAlbumView: View {
 /// Album / single card; tapping opens the tracklist.
 struct YTAlbumCard: View {
     let album: YTAlbum
-    @State private var hovered = false
 
     private var subtitle: String {
         album.year.isEmpty ? album.kind : "\(album.kind) · \(album.year)"
@@ -3769,16 +3893,13 @@ struct YTAlbumCard: View {
                     .frame(width: 132, alignment: .leading)
             }
         }
-        .buttonStyle(.plain)
-        .scaleEffect(hovered ? 1.03 : 1)
-        .onHover { h in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { hovered = h } }
+        .buttonStyle(PressableCard())
     }
 }
 
 /// Circular artist avatar; tapping opens the artist profile.
 struct YTArtistCircle: View {
     let artist: YTArtist
-    @State private var hovered = false
 
     var body: some View {
         Button {
@@ -3793,9 +3914,7 @@ struct YTArtistCircle: View {
                     .frame(width: 92)
             }
         }
-        .buttonStyle(.plain)
-        .scaleEffect(hovered ? 1.04 : 1)
-        .onHover { h in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { hovered = h } }
+        .buttonStyle(PressableCard())
     }
 }
 
@@ -3930,7 +4049,7 @@ struct YTResultRow: View {
                     in: RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .onTapGesture(perform: onPlay)
-        .onHover { hovered = $0 }
+        .interactiveSurface(lift: Lift.row) { h in withAnimation(Motion.hover) { hovered = h } }
     }
 
     private var thumbnail: some View {
@@ -4230,7 +4349,9 @@ struct TrackInfoSheet: View {
     private var header: some View {
         HStack(spacing: 14) {
             ArtworkSquare(image: library.artwork(for: track), corner: 10,
-                          remote: track.remoteArtworkURL, remoteFallback: track.remoteArtworkFallbackURL)
+                          remote: track.remoteArtworkURL,
+                          remoteFallback: track.remoteArtworkFallbackURL,
+                          seed: track.album)
                 .frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title.isEmpty ? "Untitled" : title)
@@ -4531,7 +4652,6 @@ struct PlaylistCard: View {
     let playlist: Playlist
     let open: () -> Void
     @ObservedObject private var library = Library.shared
-    @State private var hovered = false
 
     var body: some View {
         Button(action: open) {
@@ -4546,10 +4666,7 @@ struct PlaylistCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .buttonStyle(.plain)
-        .scaleEffect(hovered ? 1.02 : 1)
-        .animation(.smooth(duration: 0.18), value: hovered)
-        .onHover { hovered = $0 }
+        .buttonStyle(PressableCard())
         .contextMenu {
             Button("Play") {
                 let tracks = library.tracks(for: playlist)
@@ -4614,7 +4731,6 @@ struct PlaylistCover: View {
 struct FavoritesCard: View {
     let count: Int
     let open: () -> Void
-    @State private var hovered = false
 
     var body: some View {
         Button(action: open) {
@@ -4636,10 +4752,7 @@ struct FavoritesCard: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .buttonStyle(.plain)
-        .scaleEffect(hovered ? 1.02 : 1)
-        .animation(.smooth(duration: 0.18), value: hovered)
-        .onHover { hovered = $0 }
+        .buttonStyle(PressableCard())
     }
 }
 
@@ -5066,11 +5179,12 @@ struct TrackRow<MenuContent: View>: View {
         .background(isCurrent ? AnyShapeStyle(.white.opacity(0.12))
                               : (hovered ? AnyShapeStyle(.white.opacity(0.07)) : AnyShapeStyle(.clear)),
                     in: RoundedRectangle(cornerRadius: 10))
-        .scaleEffect(hovered ? 1.02 : 1)
         .contentShape(Rectangle())
         .onTapGesture(perform: play)
         .onDrag { NSItemProvider(object: track.id.uuidString as NSString) }
-        .onHover { h in withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { hovered = h } }
+        .interactiveSurface(lift: Lift.row, pressable: false) { h in
+            withAnimation(Motion.hover) { hovered = h }
+        }
         .contextMenu { menu() }
     }
 }
@@ -5121,7 +5235,7 @@ struct QueueRow: View {
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         .onTapGesture(perform: play)
-        .onHover { hovered = $0 }
+        .interactiveSurface(lift: Lift.row) { h in withAnimation(Motion.hover) { hovered = h } }
     }
 }
 
@@ -5233,7 +5347,7 @@ struct MiniProgress: View {
         }
         .frame(height: hovered ? 5 : 3)
         .onHover { hovered = $0 }
-        .animation(.smooth(duration: 0.18), value: hovered)
+        .animation(Motion.hover, value: hovered)
     }
 }
 
@@ -5266,10 +5380,14 @@ struct RemoteArtwork<Placeholder: View>: View {
 
 struct ArtworkSquare: View {
     let image: NSImage?
-    var corner: CGFloat = 12
+    var corner: CGFloat = Radius.art
     /// Remote cover (and fallback) used when there's no local `image`.
     var remote: URL? = nil
     var remoteFallback: URL? = nil
+    /// Tints the artless placeholder from this string (an album or track name),
+    /// so a library of untagged files reads as distinct covers instead of a
+    /// wall of identical grey squares. Nil keeps the neutral grey.
+    var seed: String? = nil
 
     var body: some View {
         Color.clear
@@ -5294,13 +5412,15 @@ struct ArtworkSquare: View {
 
     private var placeholder: some View {
         ZStack {
-            LinearGradient(colors: [Color(white: 0.24), Color(white: 0.12)],
+            LinearGradient(colors: placeholderColors,
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: "music.note")
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(.white.opacity(0.35))
         }
     }
+
+    private var placeholderColors: [Color] { Placeholder.colors(seed: seed) }
 }
 
 struct ArtworkCard: View {
@@ -5308,6 +5428,8 @@ struct ArtworkCard: View {
     /// Remote cover (and fallback) used when there's no local `artwork`.
     var remote: URL? = nil
     var remoteFallback: URL? = nil
+    /// Tints the artless placeholder — see `ArtworkSquare.seed`.
+    var seed: String? = nil
 
     var body: some View {
         // Force a square that fills (crops) any non-square source, so YouTube's
@@ -5335,7 +5457,7 @@ struct ArtworkCard: View {
 
     private var placeholder: some View {
         ZStack {
-            LinearGradient(colors: [Color(white: 0.22), Color(white: 0.1)],
+            LinearGradient(colors: Placeholder.colors(seed: seed),
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             Image(systemName: "music.note")
                 .font(.system(size: 64, weight: .light))
@@ -5376,9 +5498,9 @@ struct ScrubBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.18))
                 Capsule()
-                    .fill(.white.opacity(0.92))
+                    .fill(Chroma.current)
                     .frame(width: max(hovered ? 7 : 5, geo.size.width * fraction))
-                    .shadow(color: .white.opacity(hovered ? 0.45 : 0), radius: hovered ? 5 : 0)
+                    .shadow(color: Chroma.current.opacity(hovered ? 0.55 : 0), radius: hovered ? 6 : 0)
             }
             .contentShape(Rectangle().inset(by: -8))
             .gesture(
@@ -5398,7 +5520,7 @@ struct ScrubBar: View {
         }
         .frame(height: hovered ? 7 : 5)
         .onHover { hovered = $0 }
-        .animation(.smooth(duration: 0.2), value: hovered)
+        .animation(Motion.hover, value: hovered)
     }
 }
 
@@ -5466,7 +5588,9 @@ struct Backdrop: View {
     }
 
     private var chromaticWash: (color: Color, opacity: Double)? {
-        guard let ns = library.dominantColor(for: player.current)?.usingColorSpace(.sRGB) else { return nil }
+        let source = library.dominantColor(for: player.current)
+            ?? Placeholder.tint(seed: player.current?.album)
+        guard let ns = source?.usingColorSpace(.sRGB) else { return nil }
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         ns.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         guard s > 0.18, b > 0.15 else { return nil }

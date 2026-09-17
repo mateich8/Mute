@@ -49,7 +49,11 @@ struct MiniPlayerView: View {
     @State private var artScale: CGFloat = 1
 
     private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
-    private var tint: NSColor { library.dominantColor(for: player.current) ?? .black }
+    private var tint: NSColor {
+        library.dominantColor(for: player.current)
+            ?? Placeholder.tint(seed: player.current?.album)
+            ?? .black
+    }
     private var lightText: Bool {
         let c = tint.usingColorSpace(.sRGB) ?? tint
         let luminance = 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
