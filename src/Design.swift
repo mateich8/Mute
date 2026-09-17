@@ -175,6 +175,15 @@ enum Chroma {
         return source.map(legible) ?? .secondary
     }
 
+    /// For primary controls, which must stay legible when nothing is playing —
+    /// `current` goes grey there, which is fine for a label and wrong for a
+    /// button someone is meant to press.
+    @MainActor static var strong: Color {
+        let source = Library.shared.dominantColor(for: Player.shared.current)
+            ?? Placeholder.tint(seed: Player.shared.current?.album)
+        return source.map(legible) ?? .accentColor
+    }
+
     /// Cover colours are arbitrary — a near-black sleeve would vanish against
     /// the dark chrome and a pastel one would glare. This keeps the hue and
     /// clamps saturation and brightness into a band that stays legible.
@@ -394,6 +403,9 @@ struct PlayButton: View {
                 Label("Play", systemImage: "play.fill").font(.caption.weight(.semibold))
             }
             .buttonStyle(.glassProminent)
+            // The one control that was still system blue while everything
+            // around it wore the album's colour.
+            .tint(Chroma.strong)
         }
     }
 }

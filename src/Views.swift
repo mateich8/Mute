@@ -808,7 +808,8 @@ struct ArtistsView: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title).font(.headline).padding(.horizontal, 28).padding(.top, 2)
+        SectionHeader(title: title, accent: Chroma.current)
+            .padding(.horizontal, 28).padding(.top, 2)
     }
 
     private func horizontalCards<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -1373,7 +1374,7 @@ struct ProfileView: View {
     }
 
     private func sectionTitle(_ s: String) -> some View {
-        Text(s).font(.title3.weight(.bold)).padding(.horizontal, 28)
+        SectionHeader(title: s, accent: Chroma.current).padding(.horizontal, 28)
     }
 
     // MARK: Identity
@@ -3939,16 +3940,13 @@ struct YTSectionHeader: View {
     }
 }
 
+/// A sixth empty state lived here. It is the shared one now; only the YouTube
+/// screens' habit of leading with the message rather than a title remains.
 struct YTNote: View {
     let text: String
     let icon: String
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: icon).font(.title).foregroundStyle(.secondary)
-            Text(text).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
+        EmptyState(icon: icon, title: text)
     }
 }
 
