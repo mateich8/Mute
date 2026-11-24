@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: macos-26 # Apple Silicon (M4), provides the macOS 26 SDK Mute needs.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build
         run: ./build.sh
@@ -21,9 +21,10 @@ jobs:
       - name: Verify the bundle launches
         run: |
           # `open` returns immediately; the launch attempt exercises linking/sig.
-          open -n -a Mute.app
-          sleep 3
+          open -n ./Mute.app
+          sleep 5
           pgrep -x Mute >/dev/null && echo "Mute is running"
+          pkill -x Mute || true
 
       - name: Upload the .app bundle
         uses: actions/upload-artifact@v4
