@@ -8,10 +8,6 @@ from YouTube Music.
 
 > Mute requires **macOS 26 (Tahoe)** and runs on **Apple Silicon (arm64)**.
 
-<p align="center">
-  <img src="docs/screenshot-1.png" width="720" alt="Mute Now Playing">
-</p>
-
 ## Features
 
 **Playback**
@@ -60,7 +56,7 @@ from YouTube Music.
 |---|---|
 | OS | macOS 26 (Tahoe) |
 | Arch | Apple Silicon (arm64) |
-| Build | Swift 6 toolchain (`swiftc`) |
+| Build | Swift 6 toolchain (`swiftc`) — Command Line Tools with the macOS 26.5 SDK, or Xcode |
 
 Optional (only needed for YouTube Music features — installed automatically on
 first use if Homebrew is present):
@@ -89,9 +85,8 @@ on an Apple-Silicon macOS 26 runner.
 
 ## Screenshots
 
-The image at the top of this README lives at `docs/screenshot-1.png`. To refresh
-or add more, use the included helper — it captures the frontmost window and
-drops it into `docs/`:
+Screenshots live in `docs/`. To capture one, use the included helper — it
+captures the frontmost window and drops it into `docs/`:
 
 ```sh
 ./tools/capture-screenshots.sh --open   # launch Mute, then capture a window
