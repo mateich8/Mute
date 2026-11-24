@@ -23,7 +23,8 @@ jobs:
           # `open` returns immediately; the launch attempt exercises linking/sig.
           open -n ./Mute.app
           sleep 5
-          pgrep -x Mute >/dev/null && echo "Mute is running"
+          pgrep -x Mute >/dev/null || { echo "Mute did not launch"; exit 1; }
+          echo "Mute is running"
           pkill -x Mute || true
 
       - name: Upload the .app bundle
